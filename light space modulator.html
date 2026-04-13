@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Light Space Modulator - VJ Simulator</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+    <!-- Three.js と OrbitControls の読み込み -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+    <script>
+        let scene, camera, renderer, controls;
+        let objectGroup; // 回転するモジュレーター全体
+        let innerParts = []; // 内部で個別に動くパーツ群
+        let spotlights = [];
+        let clock = new THREE.Clock();
+
+        // VJ パラメータ (UI削除につき固定値)
+        let bpm = 128;
+        let lastBeatTime = 0;
+        let beatCount = 0;
+        let strobeLevel = 2; // 0:Off, 1:Mild, 2:Aggressive
+        let autoCamera = true;
+        
+        // 色設定 (三原色)
+        const colors = [0xff0000, 0x00ff00, 0x0000ff, 0xffffff];
+
+        init();
+        animate();
+
+        function init() {
+            // --- シーン構築 ---
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x050505);
+            scene.fog = new THREE.FogExp2(0x000000, 0.015);
+
+            // --- レンダラー ---
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            // 影を美しくするための設定
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.2;
+            document.body.appendChild(renderer.domElement);
+
+            // --- カメラ ---
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(-20, 15, 30);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.target.set(0, 10, -30); // 壁の中心方向を向く
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.maxDistance = 100;
+
+            // --- 空間 (壁と床) ---
+            const wallMat = new THREE.MeshStandardMaterial({ 
+                color: 0x222222, 
+                roughness: 0.9,
+                metalness: 0.1
+            });
+
+            const wallGeo = new THREE.PlaneGeometry(300, 150);
+            const wall = new THREE.Mesh(wallGeo, wallMat);
+            wall.position.z = -40;
+            wall.position.y = 20;
+            wall.receiveShadow = true;
+            scene.add(wall);
+
+            const floorGeo = new THREE.PlaneGeometry(300, 300);
+            const floor = new THREE.Mesh(floorGeo, wallMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.y = -5;
+            floor.receiveShadow = true;
+            scene.add(floor);
+
+            // --- マテリアルの作成 ---
+            const glassMat = new THREE.MeshPhysicalMaterial({
+                color: 0xffffff,
+                metalness: 0.1,
+                roughness: 0.05,
+                transmission: 0.9,
+                thickness: 0.5,
+                ior: 1.5,
+                transparent: true,
+                side: THREE.DoubleSide
+            });
+
+            const chromeMat = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                metalness: 1.0,
+                roughness: 0.1
+            });
+
+            const punchTexture = createPunchTexture();
+            const punchMat = new THREE.MeshStandardMaterial({
+                color: 0x111111,
+                metalness: 0.8,
+                roughness: 0.3,
+                alphaMap: punchTexture,
+                alphaTest: 0.5,
+                side: THREE.DoubleSide,
+                transparent: false
+            });
+
+            // --- オブジェ (Light Space Modulator) の構築 ---
+            objectGroup = new THREE.Group();
+            objectGroup.position.set(0, 10, 0);
+            scene.add(objectGroup);
+
+            // センター軸 (クロム) - 目立たないように細く
+            const coreGeo = new THREE.CylinderGeometry(0.1, 0.1, 30, 32);
+            const core = new THREE.Mesh(coreGeo, chromeMat);
+            core.castShadow = true;
+            objectGroup.add(core);
+
+            // パンチングメタルの半円筒カバー
+            const shellGeo = new THREE.CylinderGeometry(12, 12, 25, 64, 1, true, 0, Math.PI * 1.2);
+            const shell = new THREE.Mesh(shellGeo, punchMat);
+            shell.castShadow = true;
+            innerParts.push({ mesh: shell, speedY: 0.5, speedX: 0 });
+            objectGroup.add(shell);
+
+            // ガラスの回転ディスク (複数)
+            for (let i = 0; i < 3; i++) {
+                const diskGeo = new THREE.CylinderGeometry(10 - i*2, 10 - i*2, 0.2, 64);
+                const disk = new THREE.Mesh(diskGeo, glassMat);
+                disk.position.y = -8 + i * 8;
+                disk.rotation.x = Math.random() * Math.PI;
+                disk.castShadow = true;
+                innerParts.push({ mesh: disk, speedY: (Math.random() - 0.5) * 2, speedX: (Math.random() - 0.5) * 1 });
+                objectGroup.add(disk);
+            }
+            
+            // 外側を回るリング
+            const ringGeo = new THREE.TorusGeometry(15, 0.3, 16, 100);
+            const ring = new THREE.Mesh(ringGeo, chromeMat);
+            ring.rotation.x = Math.PI / 3;
+            ring.castShadow = true;
+            innerParts.push({ mesh: ring, speedY: 0.3, speedX: 0.2 });
+            objectGroup.add(ring);
+
+            // --- 照明 (VJ用強烈スポットライト) ---
+            scene.add(new THREE.AmbientLight(0x111111));
+
+            // 壁に向けた3つのメインスポットライト (RGB)
+            for (let i = 0; i < 3; i++) {
+                const spotLight = new THREE.SpotLight(colors[i], 1000);
+                spotLight.position.set((i - 1) * 15, 5, 25);
+                spotLight.angle = Math.PI / 3;
+                spotLight.penumbra = 0.2;
+                spotLight.decay = 2;
+                spotLight.distance = 200;
+                
+                spotLight.castShadow = true;
+                spotLight.shadow.mapSize.width = 2048;
+                spotLight.shadow.mapSize.height = 2048;
+                spotLight.shadow.bias = -0.0001;
+
+                const targetObj = new THREE.Object3D();
+                targetObj.position.set(0, 10, -40);
+                scene.add(targetObj);
+                spotLight.target = targetObj;
+
+                scene.add(spotLight);
+                spotlights.push({
+                    light: spotLight,
+                    target: targetObj,
+                    baseColor: colors[i],
+                    isActive: true
+                });
+            }
+
+            // リサイズイベント
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        // パンチングメタルのためのアルファテクスチャを生成
+        function createPunchTexture() {
+            const size = 512;
+            const canvas = document.createElement('canvas');
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, size, size);
+            
+            ctx.fillStyle = '#000000';
+            const dotSize = 12;
+            const spacing = 32;
+            
+            for (let y = 0; y < size; y += spacing) {
+                const offsetX = (y / spacing) % 2 === 0 ? 0 : spacing / 2;
+                for (let x = 0; x < size; x += spacing) {
+                    ctx.beginPath();
+                    ctx.arc(x + offsetX, y, dotSize, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(4, 8);
+            return texture;
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- VJ ギミック：ビートに応じた処理 ---
+        function handleBeat(beatType) {
+            if (beatType === 1) {
+                spotlights.forEach((s) => {
+                    if (Math.random() > 0.3) {
+                        const angle = Math.random() * Math.PI * 2;
+                        const radius = 15 + Math.random() * 10;
+                        s.light.position.x = Math.cos(angle) * radius;
+                        s.light.position.y = 5 + Math.random() * 20;
+                        s.light.position.z = 15 + Math.random() * 20;
+                        
+                        s.target.position.x = (Math.random() - 0.5) * 40;
+                        s.target.position.y = 10 + (Math.random() - 0.5) * 20;
+                    }
+                });
+                objectGroup.rotation.z = (Math.random() - 0.5) * 0.5;
+            }
+
+            if (strobeLevel > 0) {
+                spotlights.forEach((s) => {
+                    if (strobeLevel === 2) {
+                        s.isActive = Math.random() > 0.2;
+                        if (Math.random() > 0.5) {
+                            s.light.color.setHex(colors[Math.floor(Math.random() * colors.length)]);
+                        }
+                    } else if (strobeLevel === 1 && beatType === 1) {
+                        s.isActive = Math.random() > 0.1;
+                        s.light.color.setHex(s.baseColor);
+                    }
+                    s.light.intensity = s.isActive ? 2500 + Math.random() * 1000 : 0;
+                });
+            } else {
+                spotlights.forEach(s => {
+                    s.light.intensity = 2000;
+                    s.light.color.setHex(s.baseColor);
+                });
+            }
+        }
+
+        // --- アニメーションループ ---
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const time = clock.getElapsedTime();
+            const delta = clock.getDelta();
+
+            const beatDuration = 60 / bpm;
+            
+            if (time - lastBeatTime >= beatDuration / 4) {
+                lastBeatTime = time;
+                beatCount++;
+                
+                if (beatCount % 4 === 0) handleBeat(1);
+                else if (beatCount % 2 === 0) handleBeat(0.5);
+                else handleBeat(0.25);
+            }
+
+            objectGroup.rotation.y = time * 0.2;
+            
+            innerParts.forEach(part => {
+                part.mesh.rotation.y += part.speedY * 0.01;
+                part.mesh.rotation.x += part.speedX * 0.01;
+            });
+
+            if (autoCamera) {
+                const camAngle = time * 0.1;
+                const radius = 35;
+                camera.position.x = Math.sin(camAngle) * radius;
+                camera.position.z = 25 + Math.cos(camAngle * 0.5) * 10;
+                camera.position.y = 15 + Math.sin(camAngle * 0.3) * 5;
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>

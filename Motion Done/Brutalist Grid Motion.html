@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>INTERNET BRUTALISM /// GENERATIVE GRID</title>
+    <style>
+        /* ブルータリズムなCSSスタイリング */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0000FF; /* 強烈なピュアブルー */
+            color: #000;
+            font-family: "Courier New", Courier, monospace; /* システム等幅フォント */
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* 荒々しいUIオーバーレイ */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            pointer-events: none; /* 下のキャンバスのクリックを邪魔しない */
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        marquee {
+            background-color: #FFFF00; /* ピュアイエロー */
+            color: #FF0000; /* ピュアレッド */
+            font-size: 2rem;
+            font-weight: bold;
+            padding: 10px 0;
+            border-bottom: 5px solid #000;
+            text-transform: uppercase;
+        }
+
+        .hero-text {
+            font-size: 10vw;
+            line-height: 0.8;
+            font-weight: 900;
+            color: #FFF;
+            text-shadow: 
+                -4px -4px 0 #000,
+                 4px -4px 0 #000,
+                -4px  4px 0 #000,
+                 4px  4px 0 #000;
+            margin: 20px;
+            word-break: break-all;
+            mix-blend-mode: exclusion; /* 3D背景と強烈にブレンド */
+        }
+
+        .controls {
+            pointer-events: auto;
+            padding: 20px;
+            display: flex;
+            gap: 10px;
+            background: #000;
+            border-top: 5px dashed #FFF;
+        }
+
+        button {
+            background-color: #C0C0C0; /* 古いWindows風のグレー */
+            border: 3px solid #FFF;
+            border-right-color: #000;
+            border-bottom-color: #000;
+            padding: 10px 20px;
+            font-family: inherit;
+            font-size: 1.2rem;
+            font-weight: bold;
+            cursor: pointer;
+            text-transform: uppercase;
+        }
+
+        button:active {
+            border: 3px solid #000;
+            border-right-color: #FFF;
+            border-bottom-color: #FFF;
+            background-color: #A0A0A0;
+        }
+
+        .status {
+            color: #00FF00; /* ハッカーグリーン */
+            font-size: 1.2rem;
+            align-self: center;
+            margin-left: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- UIオーバーレイ -->
+    <div id="ui-layer">
+        <marquee scrollamount="15">
+            WARNING /// SYSTEM OVERRIDE /// GENERATIVE GRID ACTIVE /// INTERNET BRUTALISM /// NO DESIGN IS GOOD DESIGN ///
+        </marquee>
+        
+        <div class="hero-text">
+            DATA<br>
+            GLITCH
+        </div>
+
+        <div class="controls">
+            <button id="btn-glitch" onclick="triggerGlitch()">Force Glitch</button>
+            <button id="btn-cam" onclick="switchCamera()">Cam Shift</button>
+            <div class="status" id="status-text">SYS.ON</div>
+        </div>
+    </div>
+
+    <!-- Three.js描画領域 -->
+    <div id="canvas-container"></div>
+
+    <!-- Three.js (CDN) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // --- 1. セットアップ ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color('#000000'); // 背景は漆黒
+        scene.fog = new THREE.FogExp2('#000000', 0.05);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        
+        const renderer = new THREE.WebGLRenderer({ antialias: false }); // あえてアンチエイリアスを切り、ギザギザ感を出す
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio > 1 ? 1 : 1); // レトロ感を出すために低解像度気味に
+        container.appendChild(renderer.domElement);
+
+        // --- 2. ジェネラティブ・テクスチャ（Canvasで動的に画像生成） ---
+        function createBrutalistTexture(type) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+
+            // デフォルトの塗りつぶし
+            ctx.fillStyle = '#FFF';
+            ctx.fillRect(0, 0, 256, 256);
+
+            ctx.font = 'bold 80px "Courier New"';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            switch (type) {
+                case 'error':
+                    ctx.fillStyle = '#FF0000'; // 赤
+                    ctx.fillRect(0, 0, 256, 256);
+                    ctx.fillStyle = '#FFFF00'; // 黄
+                    ctx.fillText('ERR', 128, 128);
+                    break;
+                case 'stripe':
+                    ctx.fillStyle = '#0000FF'; // 青
+                    for(let i=0; i<256; i+=32) {
+                        ctx.fillRect(i, 0, 16, 256);
+                    }
+                    break;
+                case 'system':
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(0, 0, 256, 256);
+                    ctx.fillStyle = '#FFF';
+                    ctx.font = 'bold 50px "Courier New"';
+                    ctx.fillText('SYS', 128, 100);
+                    ctx.fillText('404', 128, 160);
+                    break;
+                case 'checker':
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(0, 0, 128, 128);
+                    ctx.fillRect(128, 128, 128, 128);
+                    break;
+            }
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.magFilter = THREE.NearestFilter; // ドット絵のような粗いフィルタリング
+            return texture;
+        }
+
+        // マテリアルのバリエーション
+        const materials = [
+            new THREE.MeshBasicMaterial({ color: 0xffffff, map: createBrutalistTexture('error') }),
+            new THREE.MeshBasicMaterial({ color: 0xffffff, map: createBrutalistTexture('stripe') }),
+            new THREE.MeshBasicMaterial({ color: 0xffffff, map: createBrutalistTexture('system') }),
+            new THREE.MeshBasicMaterial({ color: 0xffffff, map: createBrutalistTexture('checker') }),
+            new THREE.MeshBasicMaterial({ color: 0xFFFF00, wireframe: true }), // 強烈な黄色のワイヤーフレーム
+            new THREE.MeshBasicMaterial({ color: 0xFF0000 }) // ベタ塗りの赤
+        ];
+
+        // --- 3. グリッドの生成 ---
+        const gridSize = 25;
+        const tileSize = 1;
+        const gap = 0.1;
+        const tiles = [];
+
+        const geometry = new THREE.BoxGeometry(tileSize, 0.2, tileSize); // 薄い箱（タイル）
+
+        const gridGroup = new THREE.Group();
+        scene.add(gridGroup);
+
+        const offset = (gridSize * (tileSize + gap)) / 2;
+
+        for (let x = 0; x < gridSize; x++) {
+            for (let z = 0; z < gridSize; z++) {
+                // ランダムにマテリアルを選択
+                const mat = materials[Math.floor(Math.random() * materials.length)];
+                const mesh = new THREE.Mesh(geometry, mat);
+
+                // 配置
+                mesh.position.x = x * (tileSize + gap) - offset;
+                mesh.position.z = z * (tileSize + gap) - offset;
+                mesh.position.y = (Math.random() - 0.5) * 2; // 初期の乱れ
+
+                // カスタムプロパティ（アニメーション用）
+                mesh.userData = {
+                    gridX: x,
+                    gridZ: z,
+                    baseY: 0,
+                    targetRotX: 0,
+                    targetRotZ: 0,
+                    speed: Math.random() * 0.5 + 0.5
+                };
+
+                gridGroup.add(mesh);
+                tiles.push(mesh);
+            }
+        }
+
+        // --- 4. カメラと相互作用の設定 ---
+        let camIndex = 0;
+        const camPositions = [
+            { x: 0, y: 15, z: 15 },    // 斜め見下ろし
+            { x: 0, y: 30, z: 0.1 },   // ほぼ真上
+            { x: 15, y: 5, z: 15 }     // 低い視点
+        ];
+
+        function updateCamera() {
+            const pos = camPositions[camIndex];
+            camera.position.set(pos.x, pos.y, pos.z);
+            camera.lookAt(0, 0, 0);
+            
+            // 少しカメラを傾けて不安感を煽る（ダッチアングル）
+            camera.rotation.z = camIndex === 1 ? 0 : Math.PI * 0.05; 
+        }
+        updateCamera();
+
+        // UIから呼ばれる関数
+        let globalGlitchForce = 0;
+        window.triggerGlitch = () => {
+            globalGlitchForce = 1.0;
+            document.getElementById('status-text').innerText = "ERR_OVERFLOW";
+            document.getElementById('status-text').style.color = "#FF0000";
+            setTimeout(() => {
+                document.getElementById('status-text').innerText = "SYS.ON";
+                document.getElementById('status-text').style.color = "#00FF00";
+            }, 500);
+        };
+
+        window.switchCamera = () => {
+            camIndex = (camIndex + 1) % camPositions.length;
+            updateCamera();
+        };
+
+        // --- 5. アニメーションループ ---
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = clock.getElapsedTime();
+            
+            // グリッチ力の減衰
+            globalGlitchForce *= 0.9;
+
+            // グリッド全体の回転（非常にゆっくり）
+            gridGroup.rotation.y = Math.sin(time * 0.1) * 0.2;
+
+            // 各タイルのアニメーション
+            tiles.forEach(mesh => {
+                const data = mesh.userData;
+                
+                // ブルータリズム的な「カクカクした」動き（Step関数を利用）
+                // 時間と位置を元にステップを計算
+                const delay = (data.gridX * 0.1) + (data.gridZ * 0.1);
+                const step = Math.floor(time * data.speed + delay);
+                
+                // 偶数・奇数のステップでターゲット角度を変える
+                data.targetRotX = (step % 2 === 0) ? Math.PI : 0;
+                data.targetRotZ = (step % 3 === 0) ? Math.PI / 2 : 0;
+
+                // スムーズな補間をあえてやめ、少し強引にイージングさせる（機械的な動き）
+                mesh.rotation.x += (data.targetRotX - mesh.rotation.x) * 0.2;
+                mesh.rotation.z += (data.targetRotZ - mesh.rotation.z) * 0.2;
+
+                // ランダムなノイズ（グリッチ）
+                if (Math.random() < 0.001 + (globalGlitchForce * 0.1)) {
+                    mesh.position.y = (Math.random() - 0.5) * 5; // 突然跳ねる
+                } else {
+                    // 元の高さ(0)に戻る
+                    mesh.position.y += (data.baseY - mesh.position.y) * 0.1;
+                }
+
+                // グローバルグリッチ発生時、一斉に荒ぶる
+                if (globalGlitchForce > 0.1 && Math.random() > 0.5) {
+                    mesh.scale.set(1, Math.random() * 5, 1);
+                } else {
+                    mesh.scale.set(1, 1, 1);
+                }
+            });
+
+            // カメラの微細な揺れ（手ブレ・不安定なシステム感）
+            camera.position.x += (Math.random() - 0.5) * globalGlitchForce * 2;
+            camera.position.z += (Math.random() - 0.5) * globalGlitchForce * 2;
+
+            renderer.render(scene, camera);
+        }
+
+        // リサイズ対応
+        window.addEventListener('resize', onWindowResize, false);
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // 起動！
+        animate();
+    </script>
+</body>
+</html>

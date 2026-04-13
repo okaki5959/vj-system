@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>16bit Psychedelic VJ Generator</title>
+    <!-- 見た目を整えるためのTailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            background-color: black;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+        #mainCanvas {
+            width: 100%;
+            height: 100%;
+            object-fit: fill;
+            /* 16bit感を出すためにピクセル補間をオフにする */
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+            cursor: pointer;
+        }
+        #ui {
+            text-shadow: 2px 2px 0px #000;
+            transition: opacity 0.5s ease-in-out;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="mainCanvas" width="320" height="240"></canvas>
+
+    <!-- VJ用オーバーレイUI -->
+    <div id="ui" class="absolute bottom-4 left-4 p-4 bg-black bg-opacity-70 border-2 border-green-500 text-green-500 rounded-md opacity-100">
+        <h1 class="text-xl font-bold mb-2 animate-pulse" style="animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;">16BIT RASTER VJ</h1>
+        <div class="text-sm space-y-1">
+            <p><span class="text-white">[Click / Space]</span> : Force Change Pattern</p>
+            <p><span class="text-white">[A]</span> : Auto Mode <span id="autoModeText" class="text-green-400 font-bold">ON</span></p>
+            <p><span class="text-white">[F]</span> : Toggle Fullscreen</p>
+            <p><span class="text-white">[1-6]</span> : Select Pattern</p>
+        </div>
+    </div>
+
+    <script>
+        // URLパラメータでパターン固定
+        const _urlParams = new URLSearchParams(window.location.search);
+        const _lockedScene = _urlParams.has('scene') ? parseInt(_urlParams.get('scene')) : -1;
+
+        const W = 320;
+        const H = 240;
+        const CHANGE_INTERVAL = 4000; // 4秒ごとに自動でパターンが切り替わる
+
+        const canvas = document.getElementById('mainCanvas');
+        const mainCtx = canvas.getContext('2d');
+        const uiElement = document.getElementById('ui');
+        const autoModeText = document.getElementById('autoModeText');
+
+        // オフスクリーンキャンバス（ここに元のパターンを描き、メインキャンバスで波打たせる）
+        const osCanvas = document.createElement('canvas');
+        osCanvas.width = W;
+        osCanvas.height = H;
+        const osCtx = osCanvas.getContext('2d');
+
+        // UIの表示制御用
+        let uiTimeout = null;
+
+        // アニメーション設定パラメータ
+        const config = {
+            pattern: (_lockedScene >= 0 && _lockedScene < 6) ? _lockedScene : 0,
+            wave1Amp: 20,
+            wave1Freq: 0.02,
+            wave1Speed: 0.005,
+            wave2Amp: 10,
+            wave2Freq: 0.05,
+            wave2Speed: -0.003,
+            hueBase: 0,
+            hueSpeed: 0.5,
+            hueStep: 30, // 色相の階段（16bit風のパレット感を出すため）
+            feedback: false, // 残像効果
+            time: 0,
+            lastChangeTime: 0,
+            autoChange: _lockedScene < 0
+        };
+
+        const showOverlay = () => {
+            uiElement.style.opacity = '1';
+            clearTimeout(uiTimeout);
+            uiTimeout = setTimeout(() => {
+                uiElement.style.opacity = '0';
+            }, 3000);
+        };
+
+        // ランダムにパラメータを生成し、サイケデリックな変化をつける
+        const randomizeConfig = () => {
+            config.pattern = Math.floor(Math.random() * 6);
+            config.wave1Amp = 10 + Math.random() * 50;
+            config.wave1Freq = 0.005 + Math.random() * 0.04;
+            config.wave1Speed = (Math.random() - 0.5) * 0.02;
+            
+            // 50%の確率で2つ目の波を合成し、複雑なうねりにする
+            config.wave2Amp = Math.random() > 0.5 ? Math.random() * 30 : 0;
+            config.wave2Freq = 0.01 + Math.random() * 0.06;
+            config.wave2Speed = (Math.random() - 0.5) * 0.03;
+            
+            // 16bit感を出すための色相のステップ（滑らかなグラデーションを避ける）
+            const steps = [15, 30, 45, 60, 90];
+            config.hueStep = steps[Math.floor(Math.random() * steps.length)];
+            config.hueSpeed = (Math.random() - 0.5) * 1.5;
+            if(Math.abs(config.hueSpeed) < 0.2) config.hueSpeed = 0.5 * Math.sign(config.hueSpeed || 1);
+            
+            // 30%の確率で残像エフェクトを有効化
+            config.feedback = Math.random() > 0.7;
+        };
+
+        const forceChange = () => {
+            randomizeConfig();
+            config.lastChangeTime = config.time;
+            showOverlay();
+        };
+
+        const toggleFullScreen = () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.log(`Error attempting to enable full-screen mode: ${err.message}`);
+                });
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+            showOverlay();
+        };
+
+        // 指定された色相シフトを加えた16bit風のHSLカラーを取得
+        const getColor = (hueOffset) => {
+            let h = (config.hueBase + hueOffset) % 360;
+            if (h < 0) h += 360;
+            h = Math.floor(h / config.hueStep) * config.hueStep;
+            return `hsl(${h}, 100%, 50%)`;
+        };
+
+        // ベースとなるパターンを描画（オフスクリーンへ）
+        const drawPattern = (ctx, time) => {
+            if (config.feedback) {
+                // 残像効果
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+                ctx.fillRect(0, 0, W, H);
+            } else {
+                ctx.fillStyle = 'black';
+                ctx.fillRect(0, 0, W, H);
+            }
+
+            switch (config.pattern) {
+                case 0: // 市松模様 (Checkerboard)
+                    const size = 32;
+                    for (let y = 0; y < H; y += size) {
+                        for (let x = 0; x < W; x += size) {
+                            if ((Math.floor(x / size) + Math.floor(y / size)) % 2 === 0) {
+                                ctx.fillStyle = getColor(x + y + time * 0.1);
+                                ctx.fillRect(x, y, size, size);
+                            }
+                        }
+                    }
+                    break;
+                case 1: // 縦ストライプ (Vertical Stripes)
+                    const stripeW = 20;
+                    for (let x = 0; x < W; x += stripeW) {
+                        ctx.fillStyle = getColor(x * 1.5 - time * 0.3);
+                        ctx.fillRect(x, 0, stripeW / 2, H);
+                    }
+                    break;
+                case 2: // 同心円 (Concentric Circles)
+                    const cx = W / 2;
+                    const cy = H / 2;
+                    const maxR = Math.sqrt(cx*cx + cy*cy);
+                    for (let r = maxR; r > 0; r -= 20) {
+                        ctx.beginPath();
+                        // 時間で半径を波打たせる
+                        const pulse = (time * 0.05) % 20;
+                        ctx.arc(cx, cy, Math.max(0.1, r + pulse), 0, Math.PI * 2);
+                        ctx.fillStyle = getColor(r * 2 + time * 0.2);
+                        ctx.fill();
+                    }
+                    break;
+                case 3: // グリッド (Neon Grid)
+                    const gridSize = 32;
+                    const offsetX = (time * 0.1) % gridSize;
+                    const offsetY = (time * 0.1) % gridSize;
+                    ctx.strokeStyle = getColor(time * 0.3);
+                    ctx.lineWidth = 4;
+                    ctx.beginPath();
+                    for(let x = -gridSize; x < W + gridSize; x += gridSize) {
+                        ctx.moveTo(x + offsetX, 0);
+                        ctx.lineTo(x + offsetX, H);
+                    }
+                    for(let y = -gridSize; y < H + gridSize; y += gridSize) {
+                        ctx.moveTo(0, y + offsetY);
+                        ctx.lineTo(W, y + offsetY);
+                    }
+                    ctx.stroke();
+                    break;
+                case 4: // 斜めストライプ (Diagonal)
+                    for(let i = -H; i < W; i+= 30) {
+                        ctx.fillStyle = getColor(i * 1.5 + time * 0.2);
+                        ctx.beginPath();
+                        const shift = (time * 0.15) % 30;
+                        ctx.moveTo(i + shift, 0);
+                        ctx.lineTo(i + 15 + shift, 0);
+                        ctx.lineTo(i - H + 15 + shift, H);
+                        ctx.lineTo(i - H + shift, H);
+                        ctx.fill();
+                    }
+                    break;
+                case 5: // ドット (Dots)
+                    const space = 32;
+                    for(let y = space/2; y < H + space; y += space) {
+                        for(let x = space/2; x < W + space; x += space) {
+                            const radius = 8 + Math.sin(time * 0.005 + x * 0.01 + y * 0.01) * 6;
+                            ctx.beginPath();
+                            ctx.arc(x, y, Math.max(1, radius), 0, Math.PI * 2);
+                            ctx.fillStyle = getColor((x - y) * 0.5 + time * 0.2);
+                            ctx.fill();
+                        }
+                    }
+                    break;
+            }
+        };
+
+        // ラスタースクロールの適用（オンスクリーンキャンバスへ）
+        const applyRaster = (outCtx, osCvs, time) => {
+            outCtx.fillStyle = 'black';
+            outCtx.fillRect(0, 0, W, H);
+
+            for (let y = 0; y < H; y++) {
+                // Y座標（走査線）ごとにX方向のオフセットを計算する
+                const offset1 = Math.sin(y * config.wave1Freq + time * config.wave1Speed) * config.wave1Amp;
+                const offset2 = Math.sin(y * config.wave2Freq + time * config.wave2Speed) * config.wave2Amp;
+                
+                // ピクセル単位に切り捨てて16bit感を強調
+                let shiftX = Math.floor(offset1 + offset2);
+
+                // 画面の左右でループ（ラップアラウンド）するように、3回に分けて描画
+                outCtx.drawImage(osCvs, 0, y, W, 1, shiftX, y, W, 1);       // 中央
+                outCtx.drawImage(osCvs, 0, y, W, 1, shiftX - W, y, W, 1);   // 左の補間
+                outCtx.drawImage(osCvs, 0, y, W, 1, shiftX + W, y, W, 1);   // 右の補間
+            }
+        };
+
+        const loop = (timestamp) => {
+            config.time = timestamp;
+
+            // オートチェンジ処理
+            if (config.autoChange && config.time - config.lastChangeTime > CHANGE_INTERVAL) {
+                randomizeConfig();
+                config.lastChangeTime = config.time;
+            }
+
+            // 全体の色相を回転
+            config.hueBase = (config.hueBase + config.hueSpeed) % 360;
+
+            // 1. オフスクリーンにベースパターンを描画
+            drawPattern(osCtx, config.time);
+            
+            // 2. メインキャンバスにラスタースクロールを適用しながらコピー
+            applyRaster(mainCtx, osCanvas, config.time);
+
+            requestAnimationFrame(loop);
+        };
+
+        // イベントリスナー
+        canvas.addEventListener('click', forceChange);
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                forceChange();
+            } else if (e.code === 'KeyA') {
+                config.autoChange = !config.autoChange;
+                if (config.autoChange) {
+                    autoModeText.textContent = 'ON';
+                    autoModeText.className = 'text-green-400 font-bold';
+                } else {
+                    autoModeText.textContent = 'OFF';
+                    autoModeText.className = 'text-red-500 font-bold';
+                }
+                showOverlay();
+            } else if (e.code === 'KeyF') {
+                toggleFullScreen();
+            } else if (e.key >= '1' && e.key <= '6') {
+                config.pattern = parseInt(e.key) - 1;
+                config.lastChangeTime = config.time;
+                showOverlay();
+            }
+        });
+
+        // アニメーション開始
+        window.onload = () => {
+            showOverlay();
+            requestAnimationFrame(loop);
+        };
+    </script>
+</body>
+</html>

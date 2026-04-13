@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>8-bit VJ Motion Graphics</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        /* ピクセルアート感を強調するための設定 */
+        canvas {
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated; /* ドットをくっきり見せる */
+            cursor: pointer;
+        }
+
+        /* 画面全体のCRTモニター風オーバーレイ（スキャンライン） */
+        .crt-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 4px, 6px 100%;
+            pointer-events: none;
+            z-index: 10;
+            opacity: 0.8;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="vjCanvas"></canvas>
+    <div class="crt-overlay"></div>
+
+    <script>
+        const canvas = document.getElementById('vjCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // 内部解像度（意図的に低くして8bit感を出す）
+        const W = 400;
+        const H = 300;
+        canvas.width = W;
+        canvas.height = H;
+        
+        // アンチエイリアスを無効化
+        ctx.imageSmoothingEnabled = false;
+
+        // URLパラメータでシーン固定
+        const _urlParams = new URLSearchParams(window.location.search);
+        const _lockedScene = _urlParams.has('scene') ? parseInt(_urlParams.get('scene')) : -1;
+
+        // グローバル変数
+        let frame = 0;
+        let currentSceneIndex = _lockedScene >= 0 ? _lockedScene : 0;
+        let nextSceneTime = 150; // フレーム数でシーン切り替え
+        let sceneLocked = _lockedScene >= 0;
+        let palette = [];
+        let sceneData = {}; // 各シーンで使い回すデータ保持用
+
+        // カラーパレット定義
+        const PALETTES = {
+            mondrian: ['#FFFFFF', '#FF0000', '#0000FF', '#FFFF00', '#000000'],
+            gameboy: ['#0f380f', '#8bac0f', '#306230', '#9bbc0f'],
+            cyberpunk: ['#000000', '#FF00FF', '#00FFFF', '#FFFF00', '#FFFFFF'],
+            brutalism: ['#C0C0C0', '#000080', '#FFFFFF', '#000000', '#FF0000'],
+            cga: ['#000000', '#55FFFF', '#FF55FF', '#FFFFFF']
+        };
+
+        // ユーティリティ関数
+        const rand = (min, max) => Math.random() * (max - min) + min;
+        const randInt = (min, max) => Math.floor(rand(min, max));
+        const pick = (arr) => arr[randInt(0, arr.length)];
+        const clear = (color = '#000') => { ctx.fillStyle = color; ctx.fillRect(0, 0, W, H); };
+
+        // --- シーン定義 (全20種) ---
+
+        const scenes = [
+            // 1. モンドリアン・グリッチ
+            function sceneMondrian() {
+                if(frame % 10 === 0) {
+                    clear('#000');
+                    ctx.lineWidth = 4;
+                    let p = PALETTES.mondrian;
+                    for(let i=0; i<15; i++) {
+                        ctx.fillStyle = pick(p);
+                        ctx.strokeStyle = '#000';
+                        let x = randInt(0, 4) * 100;
+                        let y = randInt(0, 3) * 100;
+                        let w = randInt(1, 3) * 100;
+                        let h = randInt(1, 3) * 100;
+                        ctx.fillRect(x, y, w, h);
+                        ctx.strokeRect(x, y, w, h);
+                    }
+                }
+            },
+
+            // 2. レトロフューチャー・ワイヤーフレーム
+            function sceneRetroGrid() {
+                clear('#000');
+                ctx.strokeStyle = '#FF00FF';
+                ctx.lineWidth = 1;
+                let horizon = H * 0.4;
+                
+                // 太陽
+                ctx.fillStyle = '#FFFF00';
+                ctx.beginPath();
+                ctx.arc(W/2, horizon, 50, Math.PI, 0);
+                ctx.fill();
+                // 太陽のカットアウト
+                ctx.fillStyle = '#000';
+                for(let i=0; i<5; i++) {
+                    let yPos = horizon - i*10 - (frame%10);
+                    ctx.fillRect(W/2 - 60, yPos, 120, i*2);
+                }
+
+                // 地面のグリッド
+                ctx.strokeStyle = '#00FFFF';
+                ctx.beginPath();
+                for(let i=-W; i<W*2; i+=40) {
+                    ctx.moveTo(W/2, horizon);
+                    ctx.lineTo(i, H);
+                }
+                for(let i=0; i<20; i++) {
+                    let y = horizon + Math.pow(i + (frame%10)/10, 2);
+                    if(y < H) {
+                        ctx.moveTo(0, y);
+                        ctx.lineTo(W, y);
+                    }
+                }
+                ctx.stroke();
+            },
+
+            // 3. インターネット・ブルータリズム（重なるウィンドウ）
+            function sceneBrutalism() {
+                if(frame === 0) clear('#008080'); // Win95風背景色
+                if(frame % 15 === 0) {
+                    let x = randInt(0, W-150);
+                    let y = randInt(0, H-100);
+                    ctx.fillStyle = '#C0C0C0';
+                    ctx.fillRect(x, y, 150, 80);
+                    ctx.fillStyle = '#000080';
+                    ctx.fillRect(x, y, 150, 20);
+                    ctx.fillStyle = '#FFF';
+                    ctx.font = '12px "Courier New", monospace';
+                    ctx.fillText("ERROR_404.exe", x+5, y+14);
+                    
+                    ctx.fillStyle = '#000';
+                    ctx.fillText(pick(["FATAL ERROR", "VIRUS DETECTED", "SYSTEM FAILURE"]), x+10, y+45);
+                    
+                    ctx.fillStyle = '#C0C0C0';
+                    ctx.fillRect(x+50, y+55, 50, 20);
+                    ctx.strokeStyle = '#000';
+                    ctx.strokeRect(x+50, y+55, 50, 20);
+                    ctx.fillStyle = '#000';
+                    ctx.fillText("OK", x+68, y+69);
+                }
+            },
+
+            // 4. ゲームUIオーバーレイ
+            function sceneGameUI() {
+                clear('#000');
+                ctx.font = '10px monospace';
+                
+                // ターゲットスコープ
+                ctx.strokeStyle = '#00FF00';
+                ctx.beginPath();
+                ctx.arc(W/2, H/2, 80 + Math.sin(frame*0.1)*10, 0, Math.PI*2);
+                ctx.moveTo(W/2, H/2 - 100); ctx.lineTo(W/2, H/2 + 100);
+                ctx.moveTo(W/2 - 100, H/2); ctx.lineTo(W/2 + 100, H/2);
+                ctx.stroke();
+
+                // HPバー
+                ctx.fillStyle = '#FF0000';
+                ctx.fillRect(20, 20, 100 * Math.abs(Math.sin(frame*0.05)), 10);
+                ctx.strokeStyle = '#FFF';
+                ctx.strokeRect(20, 20, 100, 10);
+                ctx.fillStyle = '#FFF';
+                ctx.fillText("HP: CRITICAL", 20, 15);
+
+                // スコア
+                ctx.fillText("SCORE: " + (frame*123).toString().padStart(8, '0'), W - 100, 20);
+                
+                if(frame % 20 < 10) {
+                    ctx.fillStyle = '#FF0000';
+                    ctx.font = '24px monospace';
+                    ctx.fillText("WARNING", W/2 - 50, H/2 - 20);
+                }
+            },
+
+            // 5. ランダム生成ドットキャラクタースウォーム
+            function scenePixelCharacters() {
+                clear('#222');
+                let t = frame * 0.05;
+                for(let i=0; i<15; i++) {
+                    let cx = (Math.sin(t + i) * 150) + W/2;
+                    let cy = (Math.cos(t * 1.3 + i*2) * 100) + H/2;
+                    
+                    // キャラ描画 (8x8のシンメトリー)
+                    ctx.fillStyle = pick(PALETTES.cga);
+                    for(let py=0; py<8; py++) {
+                        for(let px=0; px<4; px++) {
+                            // 疑似乱数でドット決定
+                            if(Math.sin(i*123 + py*10 + px) > 0) {
+                                ctx.fillRect(cx + px*4, cy + py*4, 4, 4);
+                                ctx.fillRect(cx + (7-px)*4, cy + py*4, 4, 4); // 対称
+                            }
+                        }
+                    }
+                }
+            },
+
+            // 6. グリッチ・バー
+            function sceneGlitchBars() {
+                if(frame % 2 === 0) {
+                    for(let i=0; i<H; i+=10) {
+                        ctx.fillStyle = pick(['#000', '#FFF', '#FF0000', '#00FFFF', '#FF00FF']);
+                        if(Math.random() > 0.5) {
+                            ctx.fillRect(0, i, W, randInt(5, 20));
+                        }
+                    }
+                    // ノイズシフト
+                    let slice = ctx.getImageData(0, randInt(0, H), W, 50);
+                    ctx.putImageData(slice, randInt(-20, 20), randInt(0, H));
+                }
+            },
+
+            // 7. テトリス風 落下ブロック
+            function sceneTetris() {
+                if(frame === 0) { clear('#111'); sceneData = { grid: [] }; }
+                ctx.fillStyle = 'rgba(17, 17, 17, 0.1)';
+                ctx.fillRect(0,0,W,H);
+                
+                let s = 20; // ブロックサイズ
+                if(frame % 5 === 0) {
+                    ctx.fillStyle = pick(PALETTES.cyberpunk);
+                    ctx.strokeStyle = '#000';
+                    let x = randInt(0, W/s) * s;
+                    let y = ((frame*2) % H);
+                    y = Math.floor(y/s)*s;
+                    ctx.fillRect(x, y, s, s);
+                    ctx.strokeRect(x, y, s, s);
+                }
+            },
+
+            // 8. 迷路ジェネレータ (10 PRINT)
+            function sceneMaze() {
+                if(frame === 0) {
+                    clear('#0000AA');
+                    sceneData = { x: 0, y: 0, size: 20 };
+                }
+                let {x, y, size} = sceneData;
+                
+                ctx.strokeStyle = '#55FFFF';
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                if(Math.random() > 0.5) {
+                    ctx.moveTo(x, y); ctx.lineTo(x+size, y+size);
+                } else {
+                    ctx.moveTo(x+size, y); ctx.lineTo(x, y+size);
+                }
+                ctx.stroke();
+
+                sceneData.x += size;
+                if(sceneData.x >= W) {
+                    sceneData.x = 0;
+                    sceneData.y += size;
+                }
+                if(sceneData.y >= H) {
+                    sceneData.y = 0;
+                    clear('#0000AA');
+                }
+            },
+
+            // 9. 古典的スターフィールド
+            function sceneStarfield() {
+                if(frame === 0) {
+                    sceneData.stars = Array.from({length: 100}, () => ({x: rand(0, W), y: rand(0, H), z: rand(1, 3)}));
+                }
+                clear('#000');
+                ctx.fillStyle = '#FFF';
+                sceneData.stars.forEach(star => {
+                    ctx.fillRect(star.x, star.y, star.z, star.z);
+                    star.x -= star.z * 2;
+                    if(star.x < 0) { star.x = W; star.y = rand(0, H); }
+                });
+            },
+
+            // 10. レトロポング
+            function scenePong() {
+                clear('#000');
+                ctx.fillStyle = '#FFF';
+                // センターライン
+                for(let i=0; i<H; i+=20) { ctx.fillRect(W/2 - 2, i, 4, 10); }
+                
+                let bx = W/2 + Math.sin(frame*0.05) * (W/2 - 20);
+                let by = H/2 + Math.cos(frame*0.03) * (H/2 - 20);
+                
+                // ボール
+                ctx.fillRect(bx, by, 10, 10);
+                // パドル
+                ctx.fillRect(10, by - 20, 10, 40);
+                ctx.fillRect(W - 20, H/2 + Math.cos(frame*0.035) * (H/2 - 20) - 20, 10, 40);
+                
+                // スコア
+                ctx.font = '40px monospace';
+                ctx.fillText("12", W/2 - 60, 50);
+                ctx.fillText("09", W/2 + 20, 50);
+            },
+
+            // 11. マトリックス風バイナリレイン
+            function sceneBinaryRain() {
+                if(frame===0) clear('#000');
+                ctx.fillStyle = 'rgba(0,0,0,0.1)';
+                ctx.fillRect(0,0,W,H);
+                ctx.fillStyle = '#0F0';
+                ctx.font = '12px monospace';
+                for(let i=0; i<W; i+=15) {
+                    if(Math.random() > 0.95) {
+                        let y = (frame * rand(2, 5) + i) % H;
+                        ctx.fillText(pick(["0", "1", "ア", "カ", "サ", "タ", "X", "Z"]), i, y);
+                    }
+                }
+            },
+
+            // 12. 3Dチェッカーボードフロア
+            function sceneCheckerboard() {
+                clear('#000');
+                let t = frame * 0.1;
+                for(let y=H/2; y<H; y+=4) {
+                    let depth = (y - H/2) / (H/2); // 0 to 1
+                    let scale = 1 / Math.max(0.01, depth);
+                    for(let x=0; x<W; x+=20) {
+                        let cx = (x - W/2) * scale * 0.1;
+                        let gridX = Math.floor(cx + t*2);
+                        let gridY = Math.floor(scale + t*5);
+                        
+                        if((gridX + gridY) % 2 === 0) {
+                            ctx.fillStyle = '#FF00FF';
+                            ctx.fillRect(x, y, 20, 4);
+                        }
+                    }
+                }
+            },
+
+            // 13. DVDロゴバウンス（NO SIGNAL）
+            function sceneDVD() {
+                clear('#000');
+                if(frame===0) sceneData = {x: W/2, y: H/2, vx: 2, vy: 1.5, c: '#0FF'};
+                
+                sceneData.x += sceneData.vx;
+                sceneData.y += sceneData.vy;
+                
+                if(sceneData.x <= 0 || sceneData.x > W - 100) { sceneData.vx *= -1; sceneData.c = pick(PALETTES.cga); }
+                if(sceneData.y <= 20 || sceneData.y > H) { sceneData.vy *= -1; sceneData.c = pick(PALETTES.cga); }
+                
+                ctx.fillStyle = sceneData.c;
+                ctx.font = '20px monospace';
+                ctx.fillText("NO SIGNAL", sceneData.x, sceneData.y);
+            },
+
+            // 14. サイン波オーディオビジュアライザー風
+            function sceneAudioBars() {
+                clear('#000');
+                let bars = 30;
+                let bw = W / bars;
+                for(let i=0; i<bars; i++) {
+                    let height = Math.abs(Math.sin(frame*0.1 + i*0.2)) * 100 + Math.random()*20;
+                    ctx.fillStyle = i % 2 === 0 ? '#00FFFF' : '#FF00FF';
+                    ctx.fillRect(i*bw, H - height, bw-2, height);
+                }
+            },
+
+            // 15. 同心円トンネル
+            function sceneTunnel() {
+                clear('#000');
+                ctx.strokeStyle = '#FFF';
+                ctx.lineWidth = 2;
+                for(let i=1; i<15; i++) {
+                    let size = (i * 20 + (frame*2) % 20);
+                    ctx.strokeRect(W/2 - size, H/2 - size*0.75, size*2, size*1.5);
+                }
+            },
+
+            // 16. インベーダーフォーメーション
+            function sceneInvaders() {
+                clear('#000');
+                ctx.fillStyle = '#0F0';
+                let shiftX = Math.sin(frame*0.05) * 50;
+                let shiftY = Math.floor(frame / 60) * 10;
+                
+                for(let row=0; row<4; row++) {
+                    for(let col=0; col<8; col++) {
+                        let x = col*40 + 50 + shiftX;
+                        let y = row*30 + 30 + shiftY;
+                        // インベーダー風ドット
+                        ctx.fillRect(x, y, 20, 10);
+                        ctx.fillRect(x+5, y-5, 10, 5);
+                        ctx.fillRect(x+2, y+10, 4, 4);
+                        ctx.fillRect(x+14, y+10, 4, 4);
+                    }
+                }
+            },
+
+            // 17. ランダムウォーカー（Tron）
+            function sceneRandomWalk() {
+                if(frame === 0) {
+                    clear('#000');
+                    sceneData = {x: W/2, y: H/2, dir: 0};
+                }
+                ctx.strokeStyle = pick(['#0FF', '#F0F', '#FF0']);
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(sceneData.x, sceneData.y);
+                
+                if(Math.random() > 0.8) sceneData.dir = randInt(0, 4);
+                let speed = 10;
+                if(sceneData.dir === 0) sceneData.x += speed;
+                if(sceneData.dir === 1) sceneData.x -= speed;
+                if(sceneData.dir === 2) sceneData.y += speed;
+                if(sceneData.dir === 3) sceneData.y -= speed;
+                
+                ctx.lineTo(sceneData.x, sceneData.y);
+                ctx.stroke();
+
+                if(sceneData.x < 0 || sceneData.x > W || sceneData.y < 0 || sceneData.y > H) {
+                    sceneData.x = W/2; sceneData.y = H/2;
+                }
+            },
+
+            // 18. ピクセル静止ノイズ
+            function sceneNoise() {
+                let imgData = ctx.createImageData(W, H);
+                for (let i = 0; i < imgData.data.length; i += 4) {
+                    let val = Math.random() > 0.5 ? 255 : 0;
+                    imgData.data[i] = val;
+                    imgData.data[i+1] = val;
+                    imgData.data[i+2] = val;
+                    imgData.data[i+3] = 255;
+                }
+                ctx.putImageData(imgData, 0, 0);
+            },
+
+            // 19. レーダーとターゲット
+            function sceneRadar() {
+                clear('#001100');
+                let r = 120;
+                ctx.strokeStyle = '#00FF00';
+                ctx.beginPath(); ctx.arc(W/2, H/2, r, 0, Math.PI*2); ctx.stroke();
+                ctx.beginPath(); ctx.arc(W/2, H/2, r/2, 0, Math.PI*2); ctx.stroke();
+                
+                // スイーパー
+                let angle = frame * 0.05;
+                ctx.beginPath();
+                ctx.moveTo(W/2, H/2);
+                ctx.lineTo(W/2 + Math.cos(angle)*r, H/2 + Math.sin(angle)*r);
+                ctx.stroke();
+
+                // ターゲットブリップ
+                if(frame % 30 < 15) {
+                    ctx.fillStyle = '#00FF00';
+                    ctx.fillRect(W/2 + 40, H/2 - 50, 6, 6);
+                    ctx.fillRect(W/2 - 60, H/2 + 20, 6, 6);
+                }
+            },
+
+            // 20. 大きなスクロールテキスト
+            function sceneTextScroll() {
+                clear('#000');
+                ctx.fillStyle = pick(PALETTES.cga);
+                ctx.font = 'bold 80px monospace';
+                let txt = "SYSTEM OVERRIDE";
+                let x = W - ((frame * 5) % (W + 800));
+                ctx.fillText(txt, x, H/2 + 30);
+                
+                // 上下に帯
+                ctx.fillRect(0, H/2 - 70, W, 10);
+                ctx.fillRect(0, H/2 + 50, W, 10);
+            }
+        ];
+
+        // メインループ
+        function loop() {
+            // シーンの実行
+            scenes[currentSceneIndex]();
+
+            // オーバーレイ情報（VJのUI風）
+            if (frame < 30) {
+                // シーン切り替え直後はタイトルを点滅表示
+                if(frame % 10 < 5) {
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    ctx.fillRect(0, 0, W, 20);
+                    ctx.fillStyle = '#FFF';
+                    ctx.font = '10px monospace';
+                    ctx.fillText(`SCENE [${currentSceneIndex.toString().padStart(2, '0')}] : ${scenes[currentSceneIndex].name.replace('scene', '').toUpperCase()}`, 5, 14);
+                }
+            }
+
+            frame++;
+
+            // 指定時間でランダムな次のシーンへ（固定モード時は切り替えない）
+            if (!sceneLocked && frame > nextSceneTime) {
+                switchScene();
+            }
+
+            requestAnimationFrame(loop);
+        }
+
+        function switchScene() {
+            frame = 0;
+            sceneData = {}; // データリセット
+            let nextId = currentSceneIndex;
+            // 同じシーンが連続しないようにする
+            while(nextId === currentSceneIndex) {
+                nextId = randInt(0, scenes.length);
+            }
+            currentSceneIndex = nextId;
+            // 次のシーンの継続時間をランダムに決定 (2秒〜5秒程度)
+            nextSceneTime = randInt(120, 300);
+        }
+
+        // ユーザーインタラクション: クリックで強制シーン切り替え（固定モード時は無効）
+        if (!sceneLocked) {
+            window.addEventListener('mousedown', switchScene);
+            window.addEventListener('touchstart', switchScene);
+        }
+
+        // ループ開始
+        loop();
+
+    </script>
+</body>
+</html>

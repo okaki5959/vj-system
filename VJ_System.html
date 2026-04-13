@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Beat-Reactive VJ System</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: monospace; }
+
+  #controls {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(0,0,0,0.85); color: #0f0; padding: 10px 16px;
+    display: flex; align-items: center; gap: 16px; font-size: 13px;
+    transition: opacity 0.3s;
+  }
+  #controls.hidden { opacity: 0; pointer-events: none; }
+  #controls button {
+    background: #222; color: #0f0; border: 1px solid #0f0;
+    padding: 6px 14px; cursor: pointer; font-family: monospace; font-size: 13px;
+  }
+  #controls button:hover { background: #0f0; color: #000; }
+  #controls label { display: flex; align-items: center; gap: 6px; }
+  #controls input[type=range] { width: 120px; accent-color: #0f0; }
+
+  #beat-flash {
+    position: fixed; inset: 0; z-index: 50;
+    pointer-events: none; opacity: 0;
+    background: white;
+    transition: opacity 0.08s;
+  }
+
+  .vj-frame {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    border: none;
+  }
+  #vj-frame-a { z-index: 2; }
+  #vj-frame-b { z-index: 1; }
+
+  #drop-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,0.9); color: #0f0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 24px;
+  }
+  #drop-overlay.hidden { display: none; }
+  #drop-overlay p { margin: 10px; }
+  #drop-overlay .sub { font-size: 14px; color: #0a0; }
+
+  .mode-btn {
+    background: #222; border: 1px solid; padding: 14px 32px;
+    cursor: pointer; font-family: monospace; font-size: 16px;
+    transition: background 0.15s, color 0.15s;
+  }
+  .mode-btn:hover { color: #000 !important; }
+  .mode-btn-file { color: #0f0; border-color: #0f0; }
+  .mode-btn-file:hover { background: #0f0; }
+  .mode-btn-mic { color: #f0f; border-color: #f0f; }
+  .mode-btn-mic:hover { background: #f0f; }
+
+  #waveform {
+    position: fixed; bottom: 0; left: 0; right: 0; height: 60px;
+    z-index: 90; pointer-events: none;
+  }
+
+  #info {
+    position: fixed; bottom: 8px; right: 12px; z-index: 100;
+    color: #0f0; font-size: 11px; opacity: 0.6;
+  }
+</style>
+</head>
+<body>
+
+<div id="drop-overlay">
+  <p id="overlay-title">Select Mode</p>
+  <p class="sub">MP3 or drag & drop / Live microphone input</p>
+  <div style="display:flex; gap:20px; margin-top:24px;">
+    <button class="mode-btn mode-btn-file" id="btn-mode-file">Audio File</button>
+    <button class="mode-btn mode-btn-mic" id="btn-mode-mic">Live Mic</button>
+  </div>
+  <p id="overlay-hint" class="sub" style="margin-top:16px;"></p>
+  <div style="margin-top:28px; text-align:left; color:#888; font-size:12px; font-family:monospace; line-height:2; max-width:440px;">
+    <div style="color:#555; border-bottom:1px solid #333; padding-bottom:4px; margin-bottom:6px; font-size:11px;">CONTROLS GUIDE</div>
+    <div><span style="color:#0f0;">Sensitivity</span> &mdash; beat detection threshold (low = more reactive)</div>
+    <div><span style="color:#0f0;">Cooldown</span> &mdash; minimum interval between beats (ms)</div>
+    <div><span style="color:#0f0;">Max</span> &mdash; force switch if no beat detected (seconds)</div>
+    <div><span style="color:#0f0;">Pace</span> &mdash; switch visual every Nth beat (1x=fast, 8x=slow)</div>
+    <div><span style="color:#0f0;">Flash</span> &mdash; screen flash on beat</div>
+    <div style="margin-top:8px; color:#555; font-size:11px;">H: show/hide controls / F: fullscreen / Space: play/pause</div>
+  </div>
+  <input type="file" id="file-input" accept="audio/*" style="display:none">
+</div>
+
+<div id="controls" class="hidden">
+  <button id="btn-play">Play</button>
+  <button id="btn-stop">Stop</button>
+  <label>Sensitivity <input type="range" id="sensitivity" min="0.3" max="2.5" step="0.1" value="0.8"></label>
+  <label>Cooldown(ms) <input type="range" id="cooldown" min="50" max="500" step="25" value="150"><span id="cd-val">150</span></label>
+  <label>Max(s) <input type="range" id="max-duration" min="1" max="10" step="0.5" value="3"><span id="md-val">3</span></label>
+  <label>Pace <input type="range" id="beat-div" min="1" max="8" step="1" value="1"><span id="bd-val">1x</span></label>
+  <label><input type="checkbox" id="flash-toggle" checked> Flash</label>
+  <span id="bpm-display">BPM: --</span>
+  <span id="mode-indicator" style="margin-left:8px;"></span>
+  <span id="current-file" style="margin-left:auto; color:#0a0; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
+</div>
+
+<div id="beat-flash"></div>
+<canvas id="waveform"></canvas>
+<iframe id="vj-frame-a" class="vj-frame" sandbox="allow-scripts allow-same-origin"></iframe>
+<iframe id="vj-frame-b" class="vj-frame" sandbox="allow-scripts allow-same-origin"></iframe>
+<div id="info">H: toggle UI / F: fullscreen / Space: play/pause</div>
+
+<script>
+// ===== VJ HTML file list =====
+// Motion Done/ = 旧ファイル, ルート = 新ファイル
+// 複数シーンを持つファイルは ?scene=N で個別エントリに展開
+// old/ 内のファイルは除外
+const D = 'Motion Done/';
+const VJ_FILES = [
+  // ========== ルート: 新規追加ファイル ==========
+  "Art Deco VJ Visuals.html",
+  "Psychedelic VJ Visuals - Spider Web.html",
+  "Retro Cyberpunk VJ Loop.html",
+  "Vaporwave VJ Simulator.html",
+  "light space modulator.html",
+
+  // --- 16bit Psychedelic VJ Generator: 6 patterns ---
+  ...Array.from({length: 6}, (_, i) => `16bit Psychedelic VJ Generator.html?scene=${i}`),
+
+  // ========== Motion Done/ 内のファイル ==========
+  "Art Deco Tunnel.html",
+  D+"Cyber Dive VJ Space.html",
+  D+"Cyberpunk City VJ.html",
+  D+"Cyberspace VJ Loop.html",
+  D+"Invader VJ Motion.html",
+  D+"8bit Generative Mosaic Tile.html",
+  D+"8bit Motion Graphics.html",
+  D+"Brutalist Grid Motion.html",
+  D+"Brutalist VJ.html",
+  D+"Circuit VJ Loop Color.html",
+  D+"Circuit VJ Loop.html",
+  D+"Cyber UI VJ Motion.html",
+  D+"Mondrian Motion Graphics.html",
+  D+"Nerv AT Field Monitor.html",
+  D+"Sahaquiel VJ Motion Graphics.html",
+  D+"Superflat Motion Graphics.html",
+  D+"Vaporwave 8-bit Motion Graphics.html",
+  D+"Vaporwave_Generative_Grid.html",
+
+  // --- 8bit VJ Motion Graphics (2): 20 scenes ---
+  ...Array.from({length: 20}, (_, i) => D+`8bit VJ Motion Graphics (2).html?scene=${i}`),
+
+  // --- 8bit VJ Motion Graphics (p5.js): 3 scenes ---
+  ...Array.from({length: 3}, (_, i) => D+`8bit VJ Motion Graphics.html?scene=${i}`),
+
+  // --- Ramiel_VJ: 4 states ---
+  ...Array.from({length: 4}, (_, i) => D+`Ramiel_VJ.html?scene=${i}`),
+
+  // --- Ramiel_VJ2: 4 states ---
+  ...Array.from({length: 4}, (_, i) => D+`Ramiel_VJ2.html?scene=${i}`),
+
+  // --- Ramiel_VJ3: 5 modes ---
+  ...Array.from({length: 5}, (_, i) => D+`Ramiel_VJ3.html?scene=${i}`),
+
+  // --- Ramiel_VJ4: 4 states ---
+  ...Array.from({length: 4}, (_, i) => D+`Ramiel_VJ4.html?scene=${i}`),
+
+  // --- Windows95TextParticles: 3 states ---
+  ...Array.from({length: 3}, (_, i) => D+`Windows95TextParticles.html?scene=${i}`),
+];
+
+// ===== DOM =====
+const dropOverlay  = document.getElementById('drop-overlay');
+const overlayTitle = document.getElementById('overlay-title');
+const overlayHint  = document.getElementById('overlay-hint');
+const fileInput     = document.getElementById('file-input');
+const controls      = document.getElementById('controls');
+const btnPlay       = document.getElementById('btn-play');
+const btnStop       = document.getElementById('btn-stop');
+const sensitivityEl = document.getElementById('sensitivity');
+const cooldownEl    = document.getElementById('cooldown');
+const cdVal         = document.getElementById('cd-val');
+const maxDurEl      = document.getElementById('max-duration');
+const mdVal         = document.getElementById('md-val');
+const flashToggle   = document.getElementById('flash-toggle');
+const beatFlash     = document.getElementById('beat-flash');
+const vjFrameA      = document.getElementById('vj-frame-a');
+const vjFrameB      = document.getElementById('vj-frame-b');
+const bpmDisplay    = document.getElementById('bpm-display');
+const modeIndicator = document.getElementById('mode-indicator');
+const currentFile   = document.getElementById('current-file');
+const waveCanvas    = document.getElementById('waveform');
+const waveCtx       = waveCanvas.getContext('2d');
+const btnModeFile   = document.getElementById('btn-mode-file');
+const btnModeMic    = document.getElementById('btn-mode-mic');
+const beatDivEl     = document.getElementById('beat-div');
+const bdVal         = document.getElementById('bd-val');
+
+// ===== State =====
+let mode = null; // 'file' or 'mic'
+let audioCtx, source, analyser, lowpassFilter, lowAnalyser, midpassFilter, midAnalyser;
+let audioBuffer;
+let micStream = null;
+let isPlaying = false;
+let lastBeatTime = 0;
+let lastSwitchTime = 0;
+let beatCount = 0;       // counts detected beats for beat divider
+let beatTimes = [];
+let prevLowEnergy = 0;
+let prevMidEnergy = 0;
+let energyHistory = [];
+let midEnergyHistory = [];
+const HISTORY_LEN = 43; // ~1 second at 43fps
+
+// ===== Setup analysers (used by both modes) =====
+function setupAnalysers(sourceNode, toSpeakers) {
+  // Low-pass filter to isolate kick frequencies (20-150Hz)
+  lowpassFilter = audioCtx.createBiquadFilter();
+  lowpassFilter.type = 'lowpass';
+  lowpassFilter.frequency.value = 150;
+  lowpassFilter.Q.value = 1.0;
+
+  // Band-pass filter for snare/clap/vocal (200-2000Hz)
+  midpassFilter = audioCtx.createBiquadFilter();
+  midpassFilter.type = 'bandpass';
+  midpassFilter.frequency.value = 800;
+  midpassFilter.Q.value = 0.5;
+
+  // Analyser for low frequencies (kick detection)
+  lowAnalyser = audioCtx.createAnalyser();
+  lowAnalyser.fftSize = 2048;
+  lowAnalyser.smoothingTimeConstant = 0.3;
+
+  // Analyser for mid frequencies (snare/clap/vocal detection)
+  midAnalyser = audioCtx.createAnalyser();
+  midAnalyser.fftSize = 2048;
+  midAnalyser.smoothingTimeConstant = 0.3;
+
+  // Analyser for waveform display
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048;
+  analyser.smoothingTimeConstant = 0.8;
+
+  // Routing
+  sourceNode.connect(lowpassFilter);
+  lowpassFilter.connect(lowAnalyser);
+  sourceNode.connect(midpassFilter);
+  midpassFilter.connect(midAnalyser);
+  sourceNode.connect(analyser);
+  if (toSpeakers) {
+    analyser.connect(audioCtx.destination);
+  }
+}
+
+function resetDetection() {
+  prevLowEnergy = 0;
+  prevMidEnergy = 0;
+  energyHistory = [];
+  midEnergyHistory = [];
+  beatTimes = [];
+  lastBeatTime = 0;
+  lastSwitchTime = performance.now();
+  beatCount = 0;
+  bpmDisplay.textContent = 'BPM: --';
+}
+
+// ============================================================
+//  MODE 1: Audio File
+// ============================================================
+function setupFileAudio(buffer) {
+  if (audioCtx) audioCtx.close();
+  audioCtx = new AudioContext();
+
+  source = audioCtx.createBufferSource();
+  source.buffer = buffer;
+  setupAnalysers(source, true); // output to speakers
+
+  source.onended = () => {
+    isPlaying = false;
+    btnPlay.textContent = 'Play';
+  };
+}
+
+function startFilePlayback() {
+  if (!audioBuffer) return;
+  setupFileAudio(audioBuffer);
+  source.start(0);
+  isPlaying = true;
+  btnPlay.textContent = 'Pause';
+  resetDetection();
+  detectBeats();
+}
+
+function stopFilePlayback() {
+  if (source && isPlaying) {
+    source.stop();
+    isPlaying = false;
+    btnPlay.textContent = 'Play';
+  }
+}
+
+// ============================================================
+//  MODE 2: Live Mic
+// ============================================================
+async function startMicMode() {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+    });
+  } catch (err) {
+    alert('マイクのアクセスが拒否されました。ブラウザの設定を確認してください。');
+    return false;
+  }
+
+  if (audioCtx) audioCtx.close();
+  audioCtx = new AudioContext();
+
+  const micSource = audioCtx.createMediaStreamSource(micStream);
+  // Connect mic to ALL analysers but NOT to speakers (no feedback)
+  setupAnalysers(micSource, false);
+
+  isPlaying = true;
+  resetDetection();
+  detectBeats();
+  return true;
+}
+
+function stopMicMode() {
+  if (micStream) {
+    micStream.getTracks().forEach(t => t.stop());
+    micStream = null;
+  }
+  isPlaying = false;
+}
+
+// ============================================================
+//  Unified play/stop
+// ============================================================
+function startPlaying() {
+  if (mode === 'file') startFilePlayback();
+  // mic mode is started via startMicMode() directly
+}
+
+function stopPlaying() {
+  if (mode === 'file') stopFilePlayback();
+  else if (mode === 'mic') stopMicMode();
+}
+
+// ===== Beat detection loop =====
+function getEnergy(analyserNode, binCount) {
+  const dataArray = new Uint8Array(analyserNode.frequencyBinCount);
+  analyserNode.getByteFrequencyData(dataArray);
+  let energy = 0;
+  for (let i = 0; i < binCount; i++) {
+    energy += dataArray[i] * dataArray[i];
+  }
+  return Math.sqrt(energy / binCount);
+}
+
+function checkBeat(energy, history, prevEnergy, sensitivity) {
+  history.push(energy);
+  if (history.length > HISTORY_LEN) history.shift();
+  const avg = history.reduce((a, b) => a + b, 0) / history.length;
+  const variance = history.reduce((a, b) => a + (b - avg) ** 2, 0) / history.length;
+  const threshold = avg + Math.max(Math.sqrt(variance) * sensitivity, 8);
+  return energy > threshold && energy > prevEnergy * 1.1;
+}
+
+function detectBeats() {
+  if (!isPlaying) return;
+  requestAnimationFrame(detectBeats);
+
+  const sensitivity = parseFloat(sensitivityEl.value);
+  const now = performance.now();
+  const cooldown = parseInt(cooldownEl.value);
+  const maxDur = parseFloat(maxDurEl.value) * 1000;
+
+  // Low-freq (kick) energy
+  const lowEnergy = getEnergy(lowAnalyser, 20);
+  const lowBeat = checkBeat(lowEnergy, energyHistory, prevLowEnergy, sensitivity);
+
+  // Mid-freq (snare/clap/vocal) energy
+  const midEnergy = getEnergy(midAnalyser, 30);
+  const midBeat = checkBeat(midEnergy, midEnergyHistory, prevMidEnergy, sensitivity * 1.2);
+
+  const timeSinceBeat = now - lastBeatTime;
+  const timeSinceSwitch = now - lastSwitchTime;
+
+  const beatDiv = parseInt(beatDivEl.value);
+
+  if ((lowBeat || midBeat) && timeSinceBeat > cooldown) {
+    lastBeatTime = now;
+    beatCount++;
+    // Only switch visual every Nth beat
+    if (beatCount >= beatDiv) {
+      beatCount = 0;
+      onBeat();
+    } else if (flashToggle.checked) {
+      // Small flash on skipped beats so you feel the rhythm
+      beatFlash.style.opacity = '0.05';
+      setTimeout(() => { beatFlash.style.opacity = '0'; }, 50);
+    }
+  } else if (timeSinceSwitch > maxDur * beatDiv) {
+    // Scale max duration by divider so slow pace doesn't force-switch too fast
+    beatCount = 0;
+    onBeat();
+  }
+
+  prevLowEnergy = lowEnergy;
+  prevMidEnergy = midEnergy;
+  drawWaveform();
+}
+
+// ===== Shuffle bag: ensures all files play before any repeats =====
+let shuffleBag = [];
+let lastFile = '';
+
+function refillBag() {
+  shuffleBag = [...VJ_FILES];
+  // Fisher-Yates shuffle
+  for (let i = shuffleBag.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffleBag[i], shuffleBag[j]] = [shuffleBag[j], shuffleBag[i]];
+  }
+  // Avoid same file at boundary (last of prev round = first of new round)
+  if (shuffleBag[0] === lastFile && shuffleBag.length > 1) {
+    const swapIdx = 1 + Math.floor(Math.random() * (shuffleBag.length - 1));
+    [shuffleBag[0], shuffleBag[swapIdx]] = [shuffleBag[swapIdx], shuffleBag[0]];
+  }
+}
+
+function pickNext() {
+  if (shuffleBag.length === 0) refillBag();
+  return shuffleBag.pop();
+}
+
+// ===== Double-buffered iframe switching =====
+let frontFrame = vjFrameA;
+let backFrame = vjFrameB;
+let backReady = false;
+let pendingSwap = false;
+
+// Preload next visual into the back iframe
+function preloadNext() {
+  const file = pickNext();
+  lastFile = file;
+  backReady = false;
+  backFrame.onload = () => { backReady = true; };
+  backFrame.src = file;
+  return file;
+}
+
+let nextFileName = '';
+
+// ===== On beat: switch iframe =====
+function onBeat() {
+  // Swap: bring back iframe to front if ready
+  if (backReady) {
+    frontFrame.style.zIndex = '1';
+    backFrame.style.zIndex = '2';
+    // Swap references
+    [frontFrame, backFrame] = [backFrame, frontFrame];
+  } else {
+    // Back not ready yet — force-load directly into front as fallback
+    const file = pickNext();
+    lastFile = file;
+    frontFrame.src = file;
+    nextFileName = file;
+  }
+
+  currentFile.textContent = lastFile;
+  lastSwitchTime = performance.now();
+
+  // Start preloading the next one into the (now hidden) back frame
+  nextFileName = preloadNext();
+
+  // Flash effect
+  if (flashToggle.checked) {
+    beatFlash.style.opacity = '0.15';
+    setTimeout(() => { beatFlash.style.opacity = '0'; }, 80);
+  }
+
+  // BPM calculation
+  const now = performance.now();
+  beatTimes.push(now);
+  if (beatTimes.length > 8) beatTimes.shift();
+  if (beatTimes.length >= 2) {
+    const intervals = [];
+    for (let i = 1; i < beatTimes.length; i++) {
+      intervals.push(beatTimes[i] - beatTimes[i-1]);
+    }
+    const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+    const bpm = Math.round(60000 / avgInterval);
+    if (bpm > 40 && bpm < 300) {
+      bpmDisplay.textContent = `BPM: ~${bpm}`;
+    }
+  }
+}
+
+// ===== Waveform visualizer =====
+function drawWaveform() {
+  const W = waveCanvas.width = waveCanvas.offsetWidth;
+  const H = waveCanvas.height = waveCanvas.offsetHeight;
+  waveCtx.clearRect(0, 0, W, H);
+
+  const bufLen = analyser.frequencyBinCount;
+  const dataArray = new Uint8Array(bufLen);
+  analyser.getByteTimeDomainData(dataArray);
+
+  waveCtx.lineWidth = 1.5;
+  waveCtx.strokeStyle = mode === 'mic' ? 'rgba(255, 0, 255, 0.5)' : 'rgba(0, 255, 0, 0.5)';
+  waveCtx.beginPath();
+
+  const sliceWidth = W / bufLen;
+  let x = 0;
+  for (let i = 0; i < bufLen; i++) {
+    const v = dataArray[i] / 128.0;
+    const y = v * H / 2;
+    if (i === 0) waveCtx.moveTo(x, y);
+    else waveCtx.lineTo(x, y);
+    x += sliceWidth;
+  }
+  waveCtx.stroke();
+}
+
+// ===== File loading =====
+function loadAudioFile(file) {
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const ctx = new AudioContext();
+    audioBuffer = await ctx.decodeAudioData(e.target.result);
+    ctx.close();
+    enterFileMode();
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ===== Enter modes =====
+function enterFileMode() {
+  mode = 'file';
+  dropOverlay.classList.add('hidden');
+  controls.classList.remove('hidden');
+  btnPlay.style.display = '';
+  btnStop.textContent = 'Stop';
+  modeIndicator.textContent = 'FILE';
+  modeIndicator.style.color = '#0f0';
+  startFilePlayback();
+}
+
+async function enterMicMode() {
+  mode = 'mic';
+  const ok = await startMicMode();
+  if (!ok) { mode = null; return; }
+
+  dropOverlay.classList.add('hidden');
+  controls.classList.remove('hidden');
+  btnPlay.style.display = 'none';
+  btnStop.textContent = 'Stop';
+  modeIndicator.textContent = 'LIVE MIC';
+  modeIndicator.style.color = '#f0f';
+}
+
+function returnToOverlay() {
+  stopPlaying();
+  mode = null;
+  controls.classList.add('hidden');
+  dropOverlay.classList.remove('hidden');
+  overlayTitle.textContent = 'Select Mode';
+  overlayHint.textContent = '';
+  bpmDisplay.textContent = 'BPM: --';
+}
+
+// Auto-load the test mp3
+async function loadDefaultAudio() {
+  try {
+    const resp = await fetch('作業厨.mp3');
+    if (!resp.ok) return;
+    const arrayBuf = await resp.arrayBuffer();
+    const ctx = new AudioContext();
+    audioBuffer = await ctx.decodeAudioData(arrayBuf);
+    ctx.close();
+    overlayHint.textContent = 'Default MP3 loaded — Audio File to play';
+  } catch(e) {
+    // File not available, show normal overlay
+  }
+}
+loadDefaultAudio();
+
+// ===== Event listeners =====
+
+// Mode selection buttons
+btnModeFile.addEventListener('click', () => {
+  if (audioBuffer) {
+    enterFileMode();
+  } else {
+    fileInput.click();
+  }
+});
+
+btnModeMic.addEventListener('click', () => {
+  enterMicMode();
+});
+
+fileInput.addEventListener('change', (e) => {
+  if (e.target.files[0]) loadAudioFile(e.target.files[0]);
+});
+
+// Drag & drop (always file mode)
+document.addEventListener('dragover', (e) => { e.preventDefault(); });
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const file = e.dataTransfer.files[0];
+  if (file) loadAudioFile(file);
+});
+
+btnPlay.addEventListener('click', () => {
+  if (isPlaying) stopPlaying();
+  else startPlaying();
+});
+
+btnStop.addEventListener('click', () => {
+  returnToOverlay();
+});
+
+cooldownEl.addEventListener('input', () => {
+  cdVal.textContent = cooldownEl.value;
+});
+
+maxDurEl.addEventListener('input', () => {
+  mdVal.textContent = maxDurEl.value;
+});
+
+beatDivEl.addEventListener('input', () => {
+  const v = parseInt(beatDivEl.value);
+  bdVal.textContent = v === 1 ? '1x' : v + 'x';
+  beatCount = 0; // reset count when changing
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'h' || e.key === 'H') {
+    controls.classList.toggle('hidden');
+  }
+  if (e.key === 'f' || e.key === 'F') {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+    else document.exitFullscreen();
+  }
+  if (e.key === ' ') {
+    e.preventDefault();
+    if (mode === 'file') {
+      if (isPlaying) stopPlaying();
+      else startPlaying();
+    }
+  }
+});
+
+// Load first visual into front, preload next into back
+frontFrame.src = VJ_FILES[Math.floor(Math.random() * VJ_FILES.length)];
+nextFileName = preloadNext();
+</script>
+</body>
+</html>

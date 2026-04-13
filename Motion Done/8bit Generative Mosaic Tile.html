@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>8bit Generative Mosaic Tile</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #111;
+            /* 8bit風のフォント設定（システムフォントの代替） */
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            /* ピクセルアート感を出すためのCSSプロパティ */
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated;
+        }
+
+        /* ブラウン管モニターのような走査線エフェクト */
+        .scanlines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.15) 50%, rgba(0,0,0,0.15));
+            background-size: 100% 4px; /* 走査線の太さ */
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* レトロなテキストオーバーレイ */
+        .overlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #0f0;
+            text-shadow: 2px 2px 0 #000;
+            z-index: 20;
+            pointer-events: none;
+        }
+        
+        .overlay h1 {
+            font-size: 24px;
+            margin: 0 0 10px 0;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .overlay p {
+            font-size: 14px;
+            margin: 0;
+            opacity: 0.8;
+        }
+    </style>
+    <!-- Three.js (r128) の読み込み -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div id="canvas-container">
+        <!-- 走査線エフェクト -->
+        <div class="scanlines"></div>
+        <!-- テキストUI -->
+        <div class="overlay">
+            <h1>Generative Tile</h1>
+            <p>SYSTEM: 8-BIT MODE ONLINE</p>
+            <p>RENDER: THREE.JS</p>
+        </div>
+    </div>
+
+    <script>
+        // --- 設定変数 ---
+        const GRID_SIZE = 32;       // グリッドの一辺のタイル数
+        const TILE_SIZE = 1;        // タイルのサイズ
+        const TILE_GAP = 0.2;       // タイル間の隙間（モザイク感を強調）
+        const PIXEL_SCALE = 4;      // ドット絵感を出すためのダウンスケール倍率
+
+        let scene, camera, renderer, instancedMesh;
+        let dummy = new THREE.Object3D();
+        let color = new THREE.Color();
+        
+        init();
+        animate();
+
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            // 1. シーンの作成
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color('#0a0a1a');
+            scene.fog = new THREE.FogExp2('#0a0a1a', 0.015); // 奥をフェードアウトさせる
+
+            // 2. カメラの作成 (平行投影カメラでアイソメトリックな8bit感を演出)
+            const aspect = window.innerWidth / window.innerHeight;
+            const d = 20; // カメラの表示範囲
+            camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 1, 1000);
+            
+            // アイソメトリック視点に配置
+            camera.position.set(50, 40, 50);
+            camera.lookAt(scene.position);
+
+            // 3. レンダラーの作成
+            renderer = new THREE.WebGLRenderer({ antialias: false }); // アンチエイリアスOFFでドット感を強調
+            // レンダリング解像度を意図的に下げる
+            renderer.setSize(window.innerWidth / PIXEL_SCALE, window.innerHeight / PIXEL_SCALE, false);
+            container.appendChild(renderer.domElement);
+
+            // 4. ライトの追加
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(20, 50, -20);
+            scene.add(dirLight);
+
+            const dirLight2 = new THREE.DirectionalLight(0x00ffff, 0.3); // ネオンカラーのハイライト
+            dirLight2.position.set(-20, 20, 20);
+            scene.add(dirLight2);
+
+            // 5. モザイクタイル（InstancedMesh）の作成
+            // 大量のキューブを効率よく描画するためにInstancedMeshを使用します
+            const geometry = new THREE.BoxGeometry(TILE_SIZE, TILE_SIZE, TILE_SIZE);
+            
+            // 8bit風のフラットな質感を出すマテリアル
+            const material = new THREE.MeshStandardMaterial({
+                color: 0xffffff,
+                roughness: 0.8,
+                metalness: 0.1,
+                flatShading: true // カクカクしたポリゴン感を強調
+            });
+
+            const totalTiles = GRID_SIZE * GRID_SIZE;
+            instancedMesh = new THREE.InstancedMesh(geometry, material, totalTiles);
+            
+            // グリッドをシーンの中心に配置するためのオフセット
+            const offset = (GRID_SIZE * (TILE_SIZE + TILE_GAP)) / 2;
+
+            let i = 0;
+            for (let x = 0; x < GRID_SIZE; x++) {
+                for (let z = 0; z < GRID_SIZE; z++) {
+                    const posX = x * (TILE_SIZE + TILE_GAP) - offset;
+                    const posZ = z * (TILE_SIZE + TILE_GAP) - offset;
+                    
+                    dummy.position.set(posX, 0, posZ);
+                    dummy.updateMatrix();
+                    
+                    instancedMesh.setMatrixAt(i, dummy.matrix);
+                    
+                    // 初期カラーの設定
+                    color.setHex(0xaaaaaa);
+                    instancedMesh.setColorAt(i, color);
+                    
+                    i++;
+                }
+            }
+            scene.add(instancedMesh);
+
+            // リサイズイベント
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        function onWindowResize() {
+            const aspect = window.innerWidth / window.innerHeight;
+            const d = 20;
+            
+            camera.left = -d * aspect;
+            camera.right = d * aspect;
+            camera.top = d;
+            camera.bottom = -d;
+            camera.updateProjectionMatrix();
+
+            // 解像度をスケールダウンして維持
+            renderer.setSize(window.innerWidth / PIXEL_SCALE, window.innerHeight / PIXEL_SCALE, false);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            render();
+        }
+
+        function render() {
+            const time = performance.now() * 0.001; // 経過時間（秒）
+
+            // グリッド全体をゆっくり回転させる
+            scene.rotation.y = time * 0.1;
+
+            let i = 0;
+            const offset = (GRID_SIZE * (TILE_SIZE + TILE_GAP)) / 2;
+
+            for (let x = 0; x < GRID_SIZE; x++) {
+                for (let z = 0; z < GRID_SIZE; z++) {
+                    const posX = x * (TILE_SIZE + TILE_GAP) - offset;
+                    const posZ = z * (TILE_SIZE + TILE_GAP) - offset;
+
+                    // --- ジェネレーティブな波の計算 ---
+                    // サイン波とコサイン波を組み合わせて複雑なうねりを作成
+                    let h = Math.sin(posX * 0.3 + time * 1.5) * Math.cos(posZ * 0.3 - time * 1.0) * 4;
+                    
+                    // 8bit風の演出：高さを段階的（クォンタイズ）に切り捨てる
+                    h = Math.floor(h * 2) / 2; 
+
+                    dummy.position.set(posX, h, posZ);
+                    
+                    // スケールも高さに合わせて少し変化させる
+                    const scaleY = Math.max(0.1, h + 2);
+                    dummy.scale.set(1, scaleY, 1);
+                    
+                    dummy.updateMatrix();
+                    instancedMesh.setMatrixAt(i, dummy.matrix);
+
+                    // --- 色の計算 ---
+                    // 高さに基づいて色（Hue）を決定
+                    let hue = (h / 4) * 0.4 + (time * 0.2);
+                    
+                    // 8bit風の演出：色数も制限されているように段階的にする
+                    hue = Math.floor(hue * 12) / 12; 
+                    
+                    // HSLで色を設定 (彩度高め、明度普通でレトロゲームっぽく)
+                    color.setHSL(hue % 1.0, 0.8, 0.5);
+                    instancedMesh.setColorAt(i, color);
+
+                    i++;
+                }
+            }
+
+            // InstancedMeshの行列と色を更新したことをThree.jsに伝える
+            instancedMesh.instanceMatrix.needsUpdate = true;
+            instancedMesh.instanceColor.needsUpdate = true;
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>8-Bit Vaporwave Motion Graphics</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=Press+Start+2P&display=swap');
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #050014;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: white;
+        }
+
+        /* 8bit感を出すための低解像度キャンバスの拡大設定 */
+        #renderCanvas {
+            width: 100vw;
+            height: 100vh;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated; /* ドットをくっきり見せる */
+            object-fit: cover;
+        }
+
+        /* ブラウン管（CRT）モニタ風のスキャンラインとビネット効果 */
+        #crt-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(
+                rgba(18, 16, 16, 0) 50%,
+                rgba(0, 0, 0, 0.25) 50%
+            ), linear-gradient(
+                90deg,
+                rgba(255, 0, 0, 0.06),
+                rgba(0, 255, 0, 0.02),
+                rgba(0, 0, 255, 0.06)
+            );
+            background-size: 100% 4px, 3px 100%;
+            pointer-events: none;
+            z-index: 10;
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.9);
+        }
+
+        /* レトロなテキストオーバーレイ */
+        #text-container {
+            position: fixed;
+            top: 30%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 5;
+            pointer-events: none;
+            mix-blend-mode: screen;
+        }
+
+        .title-eng {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 4vw;
+            color: #ff00ff;
+            text-shadow: 4px 4px 0px #00ffff;
+            margin: 0;
+            letter-spacing: 5px;
+            animation: glitch-text 3s infinite;
+        }
+
+        .title-jp {
+            font-family: 'DotGothic16', sans-serif;
+            font-size: 3vw;
+            color: #00ffff;
+            text-shadow: 2px 2px 0px #ff00ff;
+            margin-top: 10px;
+            letter-spacing: 15px;
+        }
+
+        /* グリッチアニメーション */
+        @keyframes glitch-text {
+            0% { transform: translate(0) }
+            20% { transform: translate(-2px, 2px) }
+            21% { transform: translate(-2px, -2px) }
+            22% { transform: translate(2px, 2px) }
+            23% { transform: translate(2px, -2px) }
+            24% { transform: translate(0) }
+            100% { transform: translate(0) }
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="renderCanvas"></canvas>
+    
+    <div id="text-container">
+        <h1 class="title-eng">VAPORWAVE</h1>
+        <p class="title-jp">仮想現実</p>
+    </div>
+
+    <div id="crt-overlay"></div>
+
+    <script>
+        const canvas = document.getElementById('renderCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false });
+
+        // 8bit感を強調するため、内部解像度を意図的に低く設定 (320x240)
+        const CANVAS_WIDTH = 320;
+        const CANVAS_HEIGHT = 240;
+        canvas.width = CANVAS_WIDTH;
+        canvas.height = CANVAS_HEIGHT;
+
+        let time = 0;
+        
+        // 星（ピクセル）のパーティクル
+        const stars = Array.from({ length: 50 }, () => ({
+            x: Math.random() * CANVAS_WIDTH,
+            y: Math.random() * (CANVAS_HEIGHT / 2),
+            speed: Math.random() * 0.5 + 0.1,
+            size: Math.random() > 0.8 ? 2 : 1
+        }));
+
+        function draw() {
+            time += 0.04;
+
+            // 1. 背景の描画（深い紫から濃い青へのグラデーション）
+            const bgGradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT / 2);
+            bgGradient.addColorStop(0, '#0a001a');
+            bgGradient.addColorStop(1, '#2b003a');
+            ctx.fillStyle = bgGradient;
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            // 星の描画と更新
+            ctx.fillStyle = '#ffffff';
+            stars.forEach(star => {
+                ctx.fillRect(Math.floor(star.x), Math.floor(star.y), star.size, star.size);
+                star.x -= star.speed;
+                if (star.x < 0) {
+                    star.x = CANVAS_WIDTH;
+                    star.y = Math.random() * (CANVAS_HEIGHT / 2);
+                }
+            });
+
+            const horizonY = Math.floor(CANVAS_HEIGHT * 0.55);
+
+            // 2. Vaporwave風の分割された太陽を描画
+            const sunX = CANVAS_WIDTH / 2;
+            const sunY = horizonY - 10;
+            const sunRadius = 60;
+
+            for (let y = -sunRadius; y <= sunRadius; y++) {
+                // 下に行くほど隙間が大きくなる分割効果
+                if (y > -10) {
+                    const gapFrequency = 6;
+                    const gapSize = Math.floor((y + 10) / 10) + 1;
+                    if (y % gapFrequency < gapSize) {
+                        continue; // スリット部分は描画しない
+                    }
+                }
+
+                const rowWidth = Math.sqrt(sunRadius * sunRadius - y * y);
+                if (isNaN(rowWidth)) continue;
+
+                // 太陽のグラデーション（上は黄色、下はピンク）
+                const ratio = (y + sunRadius) / (sunRadius * 2);
+                const r = 255;
+                const g = Math.max(0, 255 - Math.floor(200 * ratio));
+                const b = Math.floor(150 * ratio);
+
+                ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                // ドット絵感を出すため、座標や幅は整数に丸める
+                ctx.fillRect(Math.floor(sunX - rowWidth), Math.floor(sunY + y), Math.floor(rowWidth * 2), 1);
+            }
+
+            // 3. 地平線より下の空間（地面）を描画
+            ctx.fillStyle = '#050014';
+            ctx.fillRect(0, horizonY, CANVAS_WIDTH, CANVAS_HEIGHT - horizonY);
+
+            // 4. 3Dワイヤーフレームグリッドの描画
+            ctx.lineWidth = 1;
+
+            // グリッチエフェクト（ランダムで色がブレる）
+            const isGlitch = Math.random() < 0.05;
+            const gridColor = isGlitch ? '#ff00ff' : '#00ffff';
+            ctx.strokeStyle = gridColor;
+
+            // 垂直線（パースペクティブ）
+            const numVerticalLines = 24;
+            const fov = 150;
+            for (let i = -numVerticalLines; i <= numVerticalLines; i++) {
+                ctx.beginPath();
+                ctx.moveTo(CANVAS_WIDTH / 2, horizonY);
+                // 画面下部での広がりを計算
+                const bottomX = (CANVAS_WIDTH / 2) + (i * 30);
+                ctx.lineTo(bottomX, CANVAS_HEIGHT);
+                ctx.stroke();
+            }
+
+            // 水平線（手前に向かってくるアニメーション）
+            const numHorizontalLines = 12;
+            ctx.strokeStyle = '#ff00ff';
+            for (let i = 0; i < numHorizontalLines; i++) {
+                // 時間経過でインデックスをずらし、手前に来るように見せる
+                const phase = i + (time % 1);
+                
+                // 指数関数を使って奥行き（パース）を表現
+                const yOffset = Math.pow(1.5, phase) * 2;
+                const yPos = Math.floor(horizonY + yOffset);
+
+                if (yPos > horizonY && yPos < CANVAS_HEIGHT) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, yPos);
+                    ctx.lineTo(CANVAS_WIDTH, yPos);
+                    ctx.stroke();
+                }
+            }
+
+            // 地平線の境界線
+            ctx.strokeStyle = '#00ffff';
+            ctx.beginPath();
+            ctx.moveTo(0, horizonY);
+            ctx.lineTo(CANVAS_WIDTH, horizonY);
+            ctx.stroke();
+
+            // 5. たまに画面全体を横にずらすグリッチ効果
+            if (Math.random() < 0.02) {
+                const shiftY = Math.floor(Math.random() * CANVAS_HEIGHT);
+                const shiftH = Math.floor(Math.random() * 20 + 5);
+                const shiftX = Math.floor(Math.random() * 10 - 5);
+                
+                // キャンバスの一部を切り取ってずらして再描画
+                try {
+                    const imageData = ctx.getImageData(0, shiftY, CANVAS_WIDTH, shiftH);
+                    ctx.putImageData(imageData, shiftX, shiftY);
+                } catch(e) {} // ブラウザのセキュリティエラー回避
+            }
+
+            requestAnimationFrame(draw);
+        }
+
+        // アニメーション開始
+        draw();
+    </script>
+</body>
+</html>

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Futuristic Data Space - VJ Motion</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: radial-gradient(circle at center, #051024 0%, #010308 100%);
+            font-family: 'Courier New', Courier, monospace;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        /* 微細なノイズテクスチャをCSSでオーバーレイ */
+        .noise-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            opacity: 0.04;
+            z-index: 10;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        }
+        /* ロード画面 */
+        #loader {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #00f3ff;
+            font-size: 14px;
+            letter-spacing: 2px;
+            z-index: 100;
+            transition: opacity 0.5s;
+            text-shadow: 0 0 10px #00f3ff;
+        }
+    </style>
+    
+    <!-- Three.jsとPostProcessingのモジュールをCDNから読み込み -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.150.1/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="loader">INITIALIZING INTER GATE...</div>
+    <div class="noise-overlay"></div>
+    <div id="canvas-container"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+        // --- 1. 基本設定（Scene, Camera, Renderer） ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        // 深さを出すためのフォグ（大気エフェクト）
+        scene.fog = new THREE.FogExp2(0x010308, 0.035);
+
+        // perspective: slight_top_angle (俯瞰気味のカメラ配置)
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 6, 18);
+        camera.lookAt(0, 1, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // パフォーマンス最適化
+        container.appendChild(renderer.domElement);
+
+        // --- 2. ポストプロセス（Bloomエフェクト） ---
+        const composer = new EffectComposer(renderer);
+        const renderPass = new RenderPass(scene, camera);
+        composer.addPass(renderPass);
+
+        // Bloomパラメータ (より強く、情報量の多さを強調)
+        const bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight),
+            2.5,  // 強さ (1.8 -> 2.5)
+            0.8,  // 半径 (0.6 -> 0.8)
+            0.1   // 閾値 (0.15 -> 0.1)
+        );
+        composer.addPass(bloomPass);
+
+        // --- 3. カラーパレット & 共通マテリアル設定 ---
+        const colors = {
+            cyan: 0x00f3ff,
+            teal: 0x00ffcc,
+            white: 0xffffff,
+            purple: 0x9d4edd,
+            deepBlue: 0x0a1128
+        };
+
+        const palette = [colors.cyan, colors.teal, colors.white, colors.purple];
+
+        // ホログラフィック・グラスを模した加算合成マテリアルのベース
+        const createHoloMaterial = (color, opacity = 1.0, wireframe = false) => {
+            return new THREE.MeshBasicMaterial({
+                color: color,
+                transparent: true,
+                opacity: opacity,
+                blending: THREE.AdditiveBlending,
+                side: THREE.DoubleSide,
+                wireframe: wireframe,
+                depthWrite: false
+            });
+        };
+
+        const createLineMaterial = (color, opacity = 1.0) => {
+            return new THREE.LineBasicMaterial({
+                color: color,
+                transparent: true,
+                opacity: opacity,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
+            });
+        };
+
+        // サイバー感のある破線マテリアルを追加
+        const createDashedMaterial = (color, opacity = 1.0) => {
+            return new THREE.LineDashedMaterial({
+                color: color,
+                transparent: true,
+                opacity: opacity,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                dashSize: 0.5,
+                gapSize: 0.2
+            });
+        };
+
+        // --- 4. テクスチャのプログラマティック生成 ---
+        const createCircleTexture = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64; canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            ctx.beginPath();
+            ctx.arc(32, 32, 28, 0, Math.PI * 2);
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(32, 32, 8, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.fill();
+            return new THREE.CanvasTexture(canvas);
+        };
+
+        const createTextTexture = (text) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#00f3ff';
+            ctx.font = 'bold 48px Arial, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            // 文字のグローエフェクト
+            ctx.shadowColor = '#00f3ff';
+            ctx.shadowBlur = 15;
+            ctx.fillText(text, 256, 64);
+            return new THREE.CanvasTexture(canvas);
+        };
+
+        const nodeTexture = createCircleTexture();
+        const textTexture = createTextTexture('INTER GATE');
+
+        // --- 5. オブジェクト生成 ---
+        
+        // アニメーション用に配列で保持
+        const animatables = []; 
+
+        // 5-1. Central Hub (画面中央上部の円形UI)
+        const hubGroup = new THREE.Group();
+        hubGroup.position.set(0, 4, 0); // upper_center
+        scene.add(hubGroup);
+
+        // コアオブジェクト（ワイヤーフレームの多面体）を追加して密度アップ
+        const coreGeo = new THREE.IcosahedronGeometry(1.5, 1);
+        const coreMat = createHoloMaterial(colors.white, 0.3, true);
+        const coreObj = new THREE.Mesh(coreGeo, coreMat);
+        hubGroup.add(coreObj);
+        animatables.push({ obj: coreObj, axis: 'y', speed: 0.01 });
+        animatables.push({ obj: coreObj, axis: 'x', speed: 0.005 });
+
+        // INTER GATE テキスト
+        const spriteMaterial = new THREE.SpriteMaterial({ 
+            map: textTexture, 
+            blending: THREE.AdditiveBlending,
+            transparent: true,
+            opacity: 1.0
+        });
+        const textSprite = new THREE.Sprite(spriteMaterial);
+        textSprite.scale.set(10, 2.5, 1);
+        hubGroup.add(textSprite);
+
+        // 中央のインナーリングとセグメントアーク (大幅増量: 5 -> 15)
+        for (let i = 0; i < 15; i++) {
+            const radius = 2 + (i * 0.3);
+            const segments = 128;
+            const thetaStart = Math.random() * Math.PI * 2;
+            const thetaLength = (Math.random() * 0.8 + 0.2) * Math.PI; 
+            
+            const geo = new THREE.RingGeometry(radius, radius + (Math.random() * 0.1 + 0.02), segments, 1, thetaStart, thetaLength);
+            const mat = createHoloMaterial(palette[i % palette.length], Math.random() * 0.6 + 0.4);
+            const ring = new THREE.Mesh(geo, mat);
+            
+            ring.rotation.x = -Math.PI / 2;
+            
+            animatables.push({
+                obj: ring,
+                axis: 'z',
+                speed: (Math.random() - 0.5) * 0.04
+            });
+            hubGroup.add(ring);
+        }
+
+        // 5-2. Orbital Layers (複数の同心円状・楕円状の軌道レイヤー)
+        const orbitalsGroup = new THREE.Group();
+        scene.add(orbitalsGroup);
+
+        const orbitalCount = 120; // 超高密度化: 35 -> 120
+        for (let i = 0; i < orbitalCount; i++) {
+            const radius = 3 + (Math.random() * 35);
+            const isElliptical = Math.random() > 0.4;
+            const isDashed = Math.random() > 0.7; // 一部を破線に
+            
+            const color = palette[Math.floor(Math.random() * palette.length)];
+            let line;
+
+            if (isDashed) {
+                const geo = new THREE.EdgesGeometry(new THREE.RingGeometry(radius, radius, 64));
+                const mat = createDashedMaterial(color, Math.random() * 0.5 + 0.2);
+                line = new THREE.LineSegments(geo, mat);
+                line.computeLineDistances(); // 破線のために必要
+            } else {
+                const geo = new THREE.EdgesGeometry(new THREE.RingGeometry(radius, radius, 128));
+                const mat = createLineMaterial(color, Math.random() * 0.3 + 0.05);
+                line = new THREE.LineSegments(geo, mat);
+            }
+            
+            // 角度をより複雑に散らして球体状のネットワーク空間を構成
+            line.rotation.x = Math.PI / 2 + (Math.random() - 0.5) * 1.5; 
+            line.rotation.y = (Math.random() - 0.5) * 1.0;
+            line.rotation.z = Math.random() * Math.PI;
+            
+            if (isElliptical) {
+                line.scale.set(1, Math.random() * 0.8 + 0.2, 1);
+            }
+
+            orbitalsGroup.add(line);
+            
+            animatables.push({
+                obj: line,
+                axis: 'z',
+                speed: (Math.random() - 0.5) * 0.01
+            });
+        }
+
+        // 5-3. Scattered Nodes & Network Lines (散らばるノードと結合線)
+        const nodesGroup = new THREE.Group();
+        scene.add(nodesGroup);
+
+        const nodesGeometry = new THREE.BufferGeometry();
+        const nodesCount = 3000; // 超高密度化: 400 -> 3000
+        const nodesPositions = new Float32Array(nodesCount * 3);
+        const nodesColors = new Float32Array(nodesCount * 3);
+        
+        // ネットワーク線のための頂点配列
+        const netPositions = [];
+        const netColors = [];
+
+        for (let i = 0; i < nodesCount; i++) {
+            const r = 2 + Math.pow(Math.random(), 2) * 50; 
+            const theta = Math.random() * Math.PI * 2;
+            const y = (Math.random() - 0.5) * 20;
+
+            const px = r * Math.cos(theta);
+            const py = y;
+            const pz = r * Math.sin(theta);
+
+            nodesPositions[i * 3] = px;
+            nodesPositions[i * 3 + 1] = py;
+            nodesPositions[i * 3 + 2] = pz;
+
+            const c = new THREE.Color(palette[Math.floor(Math.random() * palette.length)]);
+            nodesColors[i * 3] = c.r;
+            nodesColors[i * 3 + 1] = c.g;
+            nodesColors[i * 3 + 2] = c.b;
+
+            // ランダムに線で繋ぐ（ネットワーク効果）
+            if (i > 0 && Math.random() > 0.95 && r < 30) {
+                const prevX = nodesPositions[(i-1) * 3];
+                const prevY = nodesPositions[(i-1) * 3 + 1];
+                const prevZ = nodesPositions[(i-1) * 3 + 2];
+                netPositions.push(px, py, pz, prevX, prevY, prevZ);
+                netColors.push(c.r, c.g, c.b, c.r, c.g, c.b);
+            }
+        }
+
+        nodesGeometry.setAttribute('position', new THREE.BufferAttribute(nodesPositions, 3));
+        nodesGeometry.setAttribute('color', new THREE.BufferAttribute(nodesColors, 3));
+        
+        const nodesMaterial = new THREE.PointsMaterial({
+            size: 0.8,
+            map: nodeTexture,
+            transparent: true,
+            opacity: 0.9,
+            vertexColors: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            sizeAttenuation: true
+        });
+
+        const nodesPoints = new THREE.Points(nodesGeometry, nodesMaterial);
+        nodesGroup.add(nodesPoints);
+
+        // ネットワーク線の生成と追加
+        const networkGeo = new THREE.BufferGeometry();
+        networkGeo.setAttribute('position', new THREE.Float32BufferAttribute(netPositions, 3));
+        networkGeo.setAttribute('color', new THREE.Float32BufferAttribute(netColors, 3));
+        const networkMat = new THREE.LineBasicMaterial({
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.15,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+        const networkLines = new THREE.LineSegments(networkGeo, networkMat);
+        nodesGroup.add(networkLines);
+
+        // 5-4. Scanning Arcs (右下にあるレーダー的スキャン演出)
+        const scannerGroup = new THREE.Group();
+        scannerGroup.position.set(10, -5, 2); 
+        scannerGroup.rotation.x = -Math.PI / 2.5;
+        scannerGroup.rotation.y = -Math.PI / 8;
+        scene.add(scannerGroup);
+
+        // スキャナーの背景円
+        const scanBaseGeo = new THREE.RingGeometry(2, 6, 64);
+        const scanBaseMat = createHoloMaterial(colors.cyan, 0.05);
+        scannerGroup.add(new THREE.Mesh(scanBaseGeo, scanBaseMat));
+
+        // 複数のスキャンリングを追加して密度を上げる
+        for(let i=0; i<3; i++) {
+            const rGeo = new THREE.EdgesGeometry(new THREE.RingGeometry(2 + i*1.5, 2 + i*1.5, 64));
+            const rMat = createLineMaterial(colors.teal, 0.2);
+            scannerGroup.add(new THREE.LineSegments(rGeo, rMat));
+        }
+
+        const scanSweepGeo = new THREE.RingGeometry(2, 6, 32, 1, 0, Math.PI / 4);
+        const scanSweepMat = createHoloMaterial(colors.teal, 0.3);
+        const scanSweep = new THREE.Mesh(scanSweepGeo, scanSweepMat);
+        scannerGroup.add(scanSweep);
+
+        const scanEdgeGeo = new THREE.PlaneGeometry(4, 0.1);
+        const scanEdgeMat = createHoloMaterial(colors.white, 1.0);
+        const scanEdge = new THREE.Mesh(scanEdgeGeo, scanEdgeMat);
+        scanEdge.position.set(4, 0, 0); 
+        scanSweep.add(scanEdge);
+
+        // --- 6. アニメーションループ ---
+        let clock = new THREE.Clock();
+
+        // マウスカーソルによるカメラ移動（パララックス効果）用の変数
+        let mouseX = 0;
+        let mouseY = 0;
+        let targetX = 0;
+        let targetY = 0;
+
+        document.addEventListener('mousemove', (e) => {
+            mouseX = (e.clientX - window.innerWidth / 2) * 0.005;
+            mouseY = (e.clientY - window.innerHeight / 2) * 0.005;
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = clock.getElapsedTime();
+            const delta = clock.getDelta();
+
+            // カメラの緩やかな揺れとマウス追従 (パララックス効果で奥行きを強調)
+            targetX = mouseX * 5;
+            targetY = 6 + mouseY * 5;
+            camera.position.x += (Math.sin(time * 0.3) * 2 + targetX - camera.position.x) * 0.05;
+            camera.position.y += (targetY - camera.position.y) * 0.05;
+            camera.lookAt(0, 1, 0);
+
+            // 回転オブジェクトの更新
+            animatables.forEach(item => {
+                item.obj.rotation[item.axis] += item.speed;
+            });
+
+            // 空間全体のゆっくりとした回転とゆらぎ
+            orbitalsGroup.rotation.y = time * 0.03;
+            orbitalsGroup.rotation.z = Math.sin(time * 0.1) * 0.1;
+            nodesGroup.rotation.y = time * 0.015;
+
+            // スキャナーのスイープアニメーション
+            scanSweep.rotation.z -= 0.05;
+
+            // ノードの明滅
+            const scaleWave = Math.sin(time * 3) * 0.2 + 0.8;
+            nodesMaterial.size = 0.8 * scaleWave;
+
+            composer.render();
+        }
+
+        // --- 7. リサイズ対応 ---
+        window.addEventListener('resize', onWindowResize, false);
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // ロード画面の非表示
+        document.getElementById('loader').style.opacity = '0';
+        setTimeout(() => {
+            document.getElementById('loader').style.display = 'none';
+        }, 500);
+
+        // アニメーション開始
+        animate();
+
+    </script>
+</body>
+</html>

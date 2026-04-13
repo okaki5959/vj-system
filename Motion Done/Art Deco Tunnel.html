@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Art Deco Infinite Tunnel</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,700&display=swap');
+        
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #050505; 
+        }
+        canvas { 
+            display: block; 
+            width: 100vw; 
+            height: 100vh; 
+        }
+        /* 画面周辺を暗くするビネット効果 */
+        #vignette {
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%;
+            background: radial-gradient(circle, transparent 40%, rgba(5,5,5,0.9) 120%);
+            pointer-events: none;
+            z-index: 5;
+        }
+        /* ローディング画面 */
+        #loading {
+            position: absolute; 
+            top: 0; left: 0; 
+            width: 100%; 
+            height: 100%;
+            background-color: #050505; 
+            color: #d4af37;
+            display: flex; 
+            justify-content: center; 
+            align-items: center;
+            font-family: 'Playfair Display', serif; 
+            font-size: 3rem; 
+            letter-spacing: 0.3em;
+            z-index: 10; 
+            transition: opacity 1.5s ease-in-out;
+        }
+        .hidden { 
+            opacity: 0; 
+            pointer-events: none; 
+        }
+    </style>
+</head>
+<body>
+    <div id="vignette"></div>
+    <div id="loading">ART DECO</div>
+
+    <!-- Three.js とアドオンのインポートマップ -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+        // --- シーンとカメラのセットアップ ---
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x050505, 0.006); // フォグの濃度を下げて奥まで見えるように調整
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.z = 10;
+
+        const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.toneMapping = THREE.ACESFilmicToneMapping; // 映画のような色調補正
+        renderer.toneMappingExposure = 1.1;
+        document.body.appendChild(renderer.domElement);
+
+        // --- ポストプロセッシング (Bloom効果で光を溢れさせる) ---
+        const renderScene = new RenderPass(scene, camera);
+        const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+        bloomPass.threshold = 0.5; // 発光の基準を上げて、全体が白飛びするのを防ぐ
+        bloomPass.strength = 1.2; // 光の強さを少しマイルドに
+        bloomPass.radius = 0.8;
+
+        const composer = new EffectComposer(renderer);
+        composer.addPass(renderScene);
+        composer.addPass(bloomPass);
+
+        // --- マテリアル定義 (金属の質感を強調) ---
+        // 環境マップがない状態でも形が見えるように metalness を下げ、明るく設定
+        const matGold = new THREE.MeshStandardMaterial({ 
+            color: 0xffcc33, metalness: 0.6, roughness: 0.3 
+        });
+        const matSilver = new THREE.MeshStandardMaterial({ 
+            color: 0xdddddd, metalness: 0.5, roughness: 0.3 
+        });
+        const matDark = new THREE.MeshStandardMaterial({ 
+            color: 0x333333, metalness: 0.4, roughness: 0.6 
+        });
+        const matEmissive = new THREE.MeshStandardMaterial({ 
+            color: 0xffffff, emissive: 0xd4af37, emissiveIntensity: 2 
+        });
+
+        // --- ジオメトリ生成関数 ---
+
+        // 1. シェブロン (山形模様) のベース形状
+        function createChevronGeometry() {
+            const shape = new THREE.Shape();
+            const w = 3, h = 1.5, t = 0.6;
+            shape.moveTo(0, -h);
+            shape.lineTo(w, h);
+            shape.lineTo(w, h + t);
+            shape.lineTo(0, -h + t);
+            shape.lineTo(-w, h + t);
+            shape.lineTo(-w, h);
+            shape.lineTo(0, -h);
+            return new THREE.ExtrudeGeometry(shape, { 
+                depth: 0.5, bevelEnabled: true, bevelSegments: 2, steps: 1, bevelSize: 0.05, bevelThickness: 0.05 
+            });
+        }
+        const chevronGeo = createChevronGeometry();
+        chevronGeo.center();
+
+        // --- セグメント (1つのゲート) の構築 ---
+        const gateGroup = new THREE.Group();
+        const RADIUS = 16;
+
+        // メインフレーム (八角形)
+        const frameGeo = new THREE.TorusGeometry(RADIUS, 0.8, 16, 8);
+        const frame = new THREE.Mesh(frameGeo, matDark);
+        frame.rotation.z = Math.PI / 8; // 頂点ではなく平らな面を上下に向ける
+        gateGroup.add(frame);
+
+        // インナーフレーム (細いゴールド)
+        const innerFrameGeo = new THREE.TorusGeometry(RADIUS - 1.5, 0.3, 16, 8);
+        const innerFrame = new THREE.Mesh(innerFrameGeo, matGold);
+        innerFrame.rotation.z = Math.PI / 8;
+        gateGroup.add(innerFrame);
+
+        // 2. サンバースト (放射状の模様) の構築
+        function createSunburst() {
+            const group = new THREE.Group();
+            
+            // 中心の発光する半円
+            const halfCircleGeo = new THREE.CylinderGeometry(3.5, 3.5, 1.5, 16, 1, false, 0, Math.PI);
+            halfCircleGeo.rotateX(Math.PI/2);
+            const halfCircle = new THREE.Mesh(halfCircleGeo, matEmissive);
+            group.add(halfCircle);
+
+            // 放射状に伸びる線 (光の筋)
+            const numRays = 13;
+            for(let i=0; i<numRays; i++) {
+                const angle = (i / (numRays - 1)) * Math.PI;
+                const length = 3 + Math.sin(angle) * 7; // 中央を長く、端を短く
+                
+                const rayContainer = new THREE.Group();
+                
+                // 直線のバー
+                const ray = new THREE.Mesh(new THREE.BoxGeometry(0.4, length, 0.4), matGold);
+                ray.position.y = length / 2 + 3.5;
+                rayContainer.add(ray);
+                
+                // 先端の装飾 (ひし形/円錐)
+                const tip = new THREE.Mesh(new THREE.ConeGeometry(0.5, 2, 4), matSilver);
+                tip.position.y = length + 3.5 + 1;
+                rayContainer.add(tip);
+
+                rayContainer.rotation.z = Math.PI/2 - angle;
+                group.add(rayContainer);
+            }
+            return group;
+        }
+
+        // 上下のサンバースト配置
+        const sunburstTop = createSunburst();
+        sunburstTop.position.y = RADIUS - 2;
+        gateGroup.add(sunburstTop);
+
+        const sunburstBottom = createSunburst();
+        sunburstBottom.rotation.z = Math.PI; // 逆さまにする
+        sunburstBottom.position.y = -RADIUS + 2;
+        gateGroup.add(sunburstBottom);
+
+        // 3. シェブロン (山形模様) の構築と配置
+        function createComplexChevron() {
+            const group = new THREE.Group();
+            // 大きさを変えて3層に重ねる
+            for(let i=0; i<3; i++) {
+                const mesh = new THREE.Mesh(chevronGeo, i===1 ? matSilver : matGold);
+                mesh.scale.set(1 - i*0.2, 1 - i*0.2, 1 - i*0.2);
+                mesh.position.y = i * 0.8;
+                mesh.position.z = i * 0.3;
+                group.add(mesh);
+            }
+            return group;
+        }
+
+        // 左右の壁に連続して配置
+        for(let y = -8; y <= 8; y += 5.5) {
+            const chevL = createComplexChevron();
+            chevL.position.set(-RADIUS + 1, y, 0);
+            chevL.rotation.z = -Math.PI / 2;
+            gateGroup.add(chevL);
+
+            const chevR = createComplexChevron();
+            chevR.position.set(RADIUS - 1, y, 0);
+            chevR.rotation.z = Math.PI / 2;
+            gateGroup.add(chevR);
+        }
+
+        // 4. 床面の進行方向を示すシェブロン (スピード感の演出)
+        const SPACING = 30; // ゲート間の距離
+        for(let i=0; i<3; i++) {
+            const pathChev = new THREE.Mesh(chevronGeo, i%2===0 ? matGold : matSilver);
+            pathChev.rotation.x = -Math.PI / 2; // 床に寝かせる
+            pathChev.scale.set(2, 2, 0.5);
+            pathChev.position.set(0, -RADIUS + 1, -i * 10);
+            gateGroup.add(pathChev);
+        }
+
+        // 5. ゲート同士を繋ぐガイドライン (トンネルの骨格)
+        const pillarGeo = new THREE.CylinderGeometry(0.15, 0.15, SPACING, 8);
+        pillarGeo.rotateX(Math.PI/2);
+        const angles = [Math.PI/8, 3*Math.PI/8, 5*Math.PI/8, 7*Math.PI/8, 9*Math.PI/8, 11*Math.PI/8, 13*Math.PI/8, 15*Math.PI/8];
+        angles.forEach(a => {
+            const line = new THREE.Mesh(pillarGeo, matSilver);
+            line.position.set(Math.cos(a)*(RADIUS-0.5), Math.sin(a)*(RADIUS-0.5), -SPACING/2);
+            gateGroup.add(line);
+        });
+
+
+        // --- トンネルの量産 (オブジェクトプーリングによる無限ループ) ---
+        const COUNT = 22;
+        const gates = [];
+        for(let i=0; i<COUNT; i++) {
+            const g = gateGroup.clone();
+            g.position.z = -i * SPACING;
+            scene.add(g);
+            gates.push(g);
+        }
+
+        // --- 空間を舞う金色のパーティクル (光のチリ) ---
+        const particlesGeo = new THREE.BufferGeometry();
+        const posArr = new Float32Array(2000 * 3);
+        for(let i=0; i<2000 * 3; i+=3) {
+            posArr[i] = (Math.random() - 0.5) * 50;     // x
+            posArr[i+1] = (Math.random() - 0.5) * 50;   // y
+            posArr[i+2] = -Math.random() * (COUNT * SPACING); // z
+        }
+        particlesGeo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+        const particlesMat = new THREE.PointsMaterial({ 
+            size: 0.15, color: 0xffd700, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending 
+        });
+        const particles = new THREE.Points(particlesGeo, particlesMat);
+        scene.add(particles);
+
+        // --- ライティング ---
+        // 全体をうっすら照らす環境光を強化
+        scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+        
+        // 全体を優しく照らす半球ライト（上からの光、下からの照り返し）を追加
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2.0);
+        scene.add(hemiLight);
+
+        // カメラに追従するメインライト (物理ベースの減衰に合わせて強度を上げる)
+        const camLight = new THREE.PointLight(0xffffff, 300, 150);
+        scene.add(camLight);
+
+        // トンネルを照らす動的なカラーライト (強度をアップ)
+        const movingLight1 = new THREE.PointLight(0xffaa00, 400, 100);
+        const movingLight2 = new THREE.PointLight(0x0088ff, 400, 100);
+        scene.add(movingLight1);
+        scene.add(movingLight2);
+
+        // 奥から漏れる光 (強度をアップ)
+        const depthLight = new THREE.PointLight(0xffcc88, 800, 250);
+        depthLight.position.set(0, 0, - (COUNT * SPACING) + 50);
+        scene.add(depthLight);
+
+
+        // --- インタラクションとアニメーション ---
+        let mouseX = 0, mouseY = 0;
+        document.addEventListener('mousemove', (e) => {
+            mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+            mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+        });
+
+        const clock = new THREE.Clock();
+        const SPEED = 28; // カメラ（オブジェクト）の進行スピード
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            const time = clock.getElapsedTime();
+
+            // 1. トンネルセグメントの移動 (カメラに向かって進める)
+            gates.forEach(g => {
+                g.position.z += SPEED * delta;
+                // カメラの後ろを通り過ぎたら一番奥へ再配置 (無限ループ)
+                if(g.position.z > 15) {
+                    g.position.z -= COUNT * SPACING;
+                }
+            });
+
+            // 2. パーティクルの移動
+            const positions = particlesGeo.attributes.position.array;
+            for(let i=2; i<positions.length; i+=3) {
+                positions[i] += SPEED * delta;
+                if(positions[i] > 15) {
+                    positions[i] -= COUNT * SPACING;
+                }
+            }
+            particlesGeo.attributes.position.needsUpdate = true;
+
+            // 3. カメラの揺らぎとマウスによる視差(パララックス)効果
+            const targetX = mouseX * 2.5 + Math.sin(time * 0.6) * 0.5;
+            const targetY = mouseY * 2.5 + Math.cos(time * 0.4) * 0.5;
+            camera.position.x += (targetX - camera.position.x) * 0.05;
+            camera.position.y += (targetY - camera.position.y) * 0.05;
+            camera.rotation.z = Math.sin(time * 0.3) * 0.05; // 少しだけ傾ける
+
+            // 4. ライトのアニメーション
+            camLight.position.copy(camera.position);
+            movingLight1.position.set(Math.sin(time)*10, Math.cos(time)*10, -30);
+            movingLight2.position.set(Math.cos(time*0.8)*10, Math.sin(time*0.8)*10, -60);
+
+            // 描画
+            composer.render();
+        }
+
+        // リサイズ対応
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // 準備ができたらローディング画面を消してアニメーション開始
+        setTimeout(() => {
+            document.getElementById('loading').classList.add('hidden');
+            animate();
+        }, 800);
+
+    </script>
+</body>
+</html>

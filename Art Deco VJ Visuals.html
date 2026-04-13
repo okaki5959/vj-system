@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Art Deco VJ Visuals</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Limelight&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: 'Limelight', 'Arial Black', sans-serif;
+            color: #d4af37;
+        }
+
+        #bg-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        #vj-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            pointer-events: none; /* クリック等の干渉を防ぐ */
+        }
+
+        /* ブラウン管モニターのような走査線エフェクト */
+        .scanlines {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: repeating-linear-gradient(
+                to bottom,
+                transparent 0%,
+                rgba(0, 0, 0, 0.4) 50%,
+                transparent 100%
+            );
+            background-size: 100% 4px;
+            z-index: 100;
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        /* 画面四隅のヴィネット（暗転）エフェクト */
+        .vignette {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            box-shadow: inset 0 0 150px rgba(0,0,0,0.9);
+            z-index: 99;
+        }
+
+        /* --- アールデコ調の階段状フレーム装飾 --- */
+        .deco-frame {
+            position: absolute;
+            width: 12vw;
+            height: 12vw;
+            border: 3px solid #d4af37;
+            opacity: 0.8;
+            box-shadow: 0 0 10px rgba(212, 175, 55, 0.3);
+            transition: all 0.1s ease;
+        }
+        .deco-frame::before, .deco-frame::after {
+            content: '';
+            position: absolute;
+            border: 2px solid #d4af37;
+        }
+        
+        .top-left { top: 2rem; left: 2rem; border-right: none; border-bottom: none; }
+        .top-left::before { top: 8px; left: 8px; width: 100%; height: 100%; border-right: none; border-bottom: none; }
+        .top-left::after { top: 16px; left: 16px; width: 100%; height: 100%; border-right: none; border-bottom: none; }
+
+        .top-right { top: 2rem; right: 2rem; border-left: none; border-bottom: none; }
+        .top-right::before { top: 8px; right: 8px; width: 100%; height: 100%; border-left: none; border-bottom: none; }
+        .top-right::after { top: 16px; right: 16px; width: 100%; height: 100%; border-left: none; border-bottom: none; }
+
+        .bottom-left { bottom: 2rem; left: 2rem; border-right: none; border-top: none; }
+        .bottom-left::before { bottom: 8px; left: 8px; width: 100%; height: 100%; border-right: none; border-top: none; }
+        .bottom-left::after { bottom: 16px; left: 16px; width: 100%; height: 100%; border-right: none; border-top: none; }
+
+        .bottom-right { bottom: 2rem; right: 2rem; border-left: none; border-top: none; }
+        .bottom-right::before { bottom: 8px; right: 8px; width: 100%; height: 100%; border-left: none; border-top: none; }
+        .bottom-right::after { bottom: 16px; right: 16px; width: 100%; height: 100%; border-left: none; border-top: none; }
+
+        /* フレームのビート連動発光 */
+        .deco-frame.beat-glow {
+            filter: brightness(1.8) drop-shadow(0 0 15px #d4af37);
+            transform: scale(1.05);
+        }
+
+
+        /* --- メインテキストのスタイリング --- */
+        #main-text {
+            position: relative;
+            font-size: 10vw;
+            line-height: 1;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275), 
+                        letter-spacing 0.1s ease-out, 
+                        filter 0.1s ease-out;
+            transform-origin: center center;
+        }
+
+        /* 階段状の立体的な影（押し出し）を作るレイヤー */
+        .text-back {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            color: transparent;
+            -webkit-text-stroke: 2px rgba(212, 175, 55, 0.5);
+            /* 多重シャドウで階段状の厚みを表現 */
+            text-shadow:
+                2px 2px 0 #6b4c0a,
+                4px 4px 0 #3a2905,
+                6px 6px 0 #6b4c0a,
+                8px 8px 0 #3a2905,
+                10px 10px 0 #6b4c0a,
+                12px 12px 0 #3a2905,
+                14px 14px 20px rgba(0,0,0,0.9);
+            z-index: 1;
+        }
+
+        /* 光沢のある金属テクスチャのレイヤー */
+        .text-front {
+            position: relative;
+            z-index: 2;
+            /* 複雑なグラデーションで金属の反射を表現 */
+            background: linear-gradient(
+                to bottom,
+                #fffbe0 0%,
+                #d4af37 25%,
+                #8b6508 45%,
+                #2a1f00 50%,
+                #ffd700 55%,
+                #d4af37 80%,
+                #5c4305 100%
+            );
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            filter: drop-shadow(0 -2px 2px rgba(255, 255, 255, 0.4));
+            transition: all 0.1s;
+        }
+
+        /* --- VJ アニメーション・エフェクトクラス --- */
+        
+        /* ビート時の弾むような動きと発光 */
+        #main-text.beat {
+            transform: scale(1.15) translateY(-2vh);
+            letter-spacing: 0.1em;
+        }
+        #main-text.beat .text-front {
+            filter: brightness(1.5) contrast(1.2) drop-shadow(0 0 30px rgba(212, 175, 55, 0.6));
+        }
+
+        /* 単語切り替え時の激しい変形（吸い込まれるような動き） */
+        #main-text.switch {
+            transform: scale(1.5) scaleY(0.2) skewX(-30deg);
+            opacity: 0;
+            filter: blur(15px) brightness(3);
+            letter-spacing: -0.1em;
+            transition: all 0.15s cubic-bezier(0.55, 0.085, 0.68, 0.53);
+        }
+
+        /* ランダムに発生するグリッチ（色収差と位置ズレ）エフェクト */
+        #main-text.glitch .text-front {
+            transform: translate(15px, -5px) skew(-10deg);
+            /* RGBをずらしたような影 */
+            filter: drop-shadow(-15px 0 0 rgba(255, 0, 0, 0.8)) drop-shadow(15px 0 0 rgba(0, 255, 255, 0.8));
+            background: linear-gradient(to bottom, #fff 0%, #d4af37 100%);
+            -webkit-background-clip: text;
+        }
+        #main-text.glitch .text-back {
+            transform: translate(-10px, 5px);
+            opacity: 0.5;
+        }
+        
+        /* 画面全体のフラッシュ */
+        #flash-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #fff;
+            opacity: 0;
+            z-index: 50;
+            pointer-events: none;
+            transition: opacity 0.1s ease-out;
+            mix-blend-mode: overlay;
+        }
+        #flash-overlay.flash {
+            opacity: 0.8;
+            transition: none;
+        }
+
+    </style>
+</head>
+<body>
+
+    <canvas id="bg-canvas"></canvas>
+    
+    <div id="flash-overlay"></div>
+    <div class="vignette"></div>
+    <div class="scanlines"></div>
+
+    <div id="vj-container">
+        <!-- アールデコ調のコーナーフレーム -->
+        <div class="deco-frame top-left"></div>
+        <div class="deco-frame top-right"></div>
+        <div class="deco-frame bottom-left"></div>
+        <div class="deco-frame bottom-right"></div>
+
+        <h1 id="main-text">
+            <span class="text-back">METROPOLIS</span>
+            <span class="text-front">METROPOLIS</span>
+        </h1>
+    </div>
+
+    <script>
+        // --- 設定と変数の初期化 ---
+        const canvas = document.getElementById('bg-canvas');
+        const ctx = canvas.getContext('2d');
+        const textContainer = document.getElementById('main-text');
+        const textFront = document.querySelector('.text-front');
+        const textBack = document.querySelector('.text-back');
+        const frames = document.querySelectorAll('.deco-frame');
+        const flashOverlay = document.getElementById('flash-overlay');
+
+        let width, height;
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // 表示するテキストのリスト
+        const words = ["METROPOLIS", "FUTURE", "JAZZ", "DECO", "RHYTHM"];
+        let wordIndex = 0;
+
+        // BGMのビートを擬似的にシミュレート (BPM = 128)
+        const bpm = 128;
+        const beatInterval = 60000 / bpm; // 1拍のミリ秒数
+        let lastBeatTime = 0;
+        let beatCount = 0;
+        let beatPulse = 0; // Canvas描画用（ビート時に1になり減衰する）
+
+        // --- テキスト更新処理 ---
+        function updateText(word) {
+            textFront.textContent = word;
+            textBack.textContent = word;
+        }
+
+        // --- VJエフェクトのトリガー関数 ---
+        function triggerBeat() {
+            // テキストのバウンド
+            textContainer.classList.add('beat');
+            
+            // フレームの発光
+            frames.forEach(f => f.classList.add('beat-glow'));
+            
+            // Canvas用のパルスをリセット
+            beatPulse = 1.0;
+
+            setTimeout(() => {
+                textContainer.classList.remove('beat');
+                frames.forEach(f => f.classList.remove('beat-glow'));
+            }, 120);
+        }
+
+        function triggerWordSwitch() {
+            wordIndex = (wordIndex + 1) % words.length;
+            textContainer.classList.add('switch');
+
+            // 激しいフラッシュ
+            flashOverlay.classList.add('flash');
+
+            setTimeout(() => {
+                updateText(words[wordIndex]);
+                textContainer.classList.remove('switch');
+                flashOverlay.classList.remove('flash');
+            }, 150);
+        }
+
+        function triggerGlitch() {
+            textContainer.classList.add('glitch');
+            // グリッチ中はキャンバスの位置を少しずらす（地震エフェクト）
+            canvas.style.transform = `translate(${Math.random()*20-10}px, ${Math.random()*20-10}px)`;
+            
+            setTimeout(() => {
+                textContainer.classList.remove('glitch');
+                canvas.style.transform = 'translate(0, 0)';
+            }, 150 + Math.random() * 150);
+        }
+
+        // --- Canvas描画系関数（アールデコモチーフ） ---
+        
+        // 放射状のサンバースト（光線）
+        function drawSunburst(ctx, cx, cy, radius, rays) {
+            ctx.fillStyle = 'rgba(212, 175, 55, 0.04)';
+            ctx.beginPath();
+            for (let i = 0; i < rays; i++) {
+                let angle1 = (i / rays) * Math.PI * 2;
+                let angle2 = ((i + 0.3) / rays) * Math.PI * 2; // 線の幅
+                ctx.moveTo(cx, cy);
+                ctx.lineTo(cx + Math.cos(angle1) * radius, cy + Math.sin(angle1) * radius);
+                ctx.lineTo(cx + Math.cos(angle2) * radius, cy + Math.sin(angle2) * radius);
+                ctx.closePath();
+            }
+            ctx.fill();
+        }
+
+        // アールデコ特有の扇形（ファン）模様
+        function drawDecoFan(ctx, cx, cy, radius, startAngle, endAngle, segments) {
+            // 同心円の階段状アーチ
+            for (let r = 0.3; r <= 1.0; r += 0.23) {
+                ctx.beginPath();
+                ctx.arc(cx, cy, radius * r, startAngle, endAngle);
+                ctx.stroke();
+            }
+            // 放射状の骨組み
+            for (let i = 0; i <= segments; i++) {
+                let a = startAngle + (endAngle - startAngle) * (i / segments);
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.lineTo(cx + Math.cos(a) * radius, cy + Math.sin(a) * radius);
+                ctx.stroke();
+            }
+        }
+
+        // 階段状の摩天楼（エンパイア・ステート・ビルのようなシルエット）
+        function drawSkyscrapers(ctx, w, h, pulse, time) {
+            const numBuildings = 11;
+            const buildingWidth = w / numBuildings;
+
+            for (let i = 0; i < numBuildings; i++) {
+                let cx = buildingWidth * i + buildingWidth / 2;
+                // 中央のビルほど高くする
+                let distFromCenter = Math.abs(i - Math.floor(numBuildings / 2));
+                let baseHeight = h * 0.65 - distFromCenter * h * 0.08;
+                
+                // 時間経過の波紋と、ビートによる急激な高さ上昇を組み合わせる
+                let totalHeight = baseHeight + Math.sin(time * 0.003 + i) * 20 + pulse * 60;
+
+                let steps = 5; // 階段の段数
+                let stepH = totalHeight / steps;
+                let maxWidth = buildingWidth * 0.8;
+
+                // 金属の質感を出すグラデーション
+                let grad = ctx.createLinearGradient(0, h - totalHeight, 0, h);
+                grad.addColorStop(0, '#f8e08e');
+                grad.addColorStop(0.2, '#d4af37');
+                grad.addColorStop(0.6, '#3a2905');
+                grad.addColorStop(1, '#050505');
+
+                ctx.fillStyle = grad;
+                ctx.strokeStyle = `rgba(212, 175, 55, ${0.3 + pulse * 0.5})`;
+                ctx.lineWidth = 1.5;
+
+                ctx.beginPath();
+                // 左側を登る
+                for (let j = 0; j < steps; j++) {
+                    let widthRatio = 1 - (j / steps) * 0.6; // 上に行くほど細く
+                    let bw = maxWidth * widthRatio;
+                    let x = cx - bw / 2;
+                    let y = h - stepH * j;
+                    ctx.lineTo(x, y);
+                    ctx.lineTo(x, y - stepH);
+                }
+                // 右側を下る
+                for (let j = steps - 1; j >= 0; j--) {
+                    let widthRatio = 1 - (j / steps) * 0.6;
+                    let bw = maxWidth * widthRatio;
+                    let x = cx + bw / 2;
+                    let y = h - stepH * (j + 1);
+                    ctx.lineTo(x, y);
+                    ctx.lineTo(x, h - stepH * j);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+            }
+        }
+
+        // --- メインアニメーションループ ---
+        function loop(time) {
+            requestAnimationFrame(loop);
+
+            // 残像を残すために半透明の黒でクリア
+            ctx.fillStyle = 'rgba(5, 5, 8, 0.3)';
+            ctx.fillRect(0, 0, width, height);
+
+            beatPulse *= 0.85; // ビートのパルスを徐々に減衰させる
+
+            // 1. 回転するサンバーストの描画
+            ctx.save();
+            ctx.translate(width / 2, height / 2);
+            ctx.rotate(time * 0.0001); // ゆっくり回転
+            drawSunburst(ctx, 0, 0, Math.max(width, height) * 1.2, 36);
+            ctx.restore();
+
+            // 2. 中央背後のアールデコ扇形モチーフ
+            ctx.save();
+            ctx.translate(width / 2, height / 2);
+            // ビートに合わせてスケール変化
+            let fanScale = 1 + beatPulse * 0.15;
+            ctx.scale(fanScale, fanScale);
+            ctx.strokeStyle = `rgba(212, 175, 55, ${0.1 + beatPulse * 0.2})`;
+            ctx.lineWidth = 2;
+            drawDecoFan(ctx, 0, 0, height * 0.45, Math.PI, Math.PI * 2, 14); // 上半分
+            drawDecoFan(ctx, 0, 0, height * 0.45, 0, Math.PI, 14);           // 下半分
+            ctx.restore();
+
+            // 3. 階段状の摩天楼シルエット
+            drawSkyscrapers(ctx, width, height, beatPulse, time);
+
+            // --- タイムライン・ビート管理 ---
+            if (time - lastBeatTime > beatInterval) {
+                lastBeatTime = time;
+                beatCount++;
+
+                // 1拍ごとにビートエフェクト
+                triggerBeat();
+
+                // 4拍（1小節）ごとに単語を切り替え
+                if (beatCount % 4 === 0) {
+                    triggerWordSwitch();
+                }
+
+                // 7拍目など、不規則なタイミングでグリッチエフェクト
+                if (beatCount % 8 === 7 || Math.random() < 0.1) {
+                    triggerGlitch();
+                }
+            }
+        }
+
+        // 初期テキストをセットしてアニメーション開始
+        updateText(words[0]);
+        requestAnimationFrame(loop);
+
+    </script>
+</body>
+</html>
