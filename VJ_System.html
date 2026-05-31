@@ -111,62 +111,62 @@
 
 <script>
 // ===== VJ HTML file list =====
-// Motion Done/ = 旧ファイル, ルート = 新ファイル
+// All visuals live in the vj-system-assets submodule, mounted at ./assets/
 // 複数シーンを持つファイルは ?scene=N で個別エントリに展開
-// old/ 内のファイルは除外
-const D = 'Motion Done/';
+const A = 'assets/';
 const VJ_FILES = [
-  // ========== ルート: 新規追加ファイル ==========
-  "Art Deco VJ Visuals.html",
-  "Psychedelic VJ Visuals - Spider Web.html",
-  "Retro Cyberpunk VJ Loop.html",
-  "Vaporwave VJ Simulator.html",
-  "light space modulator.html",
+  A+"Art Deco VJ Visuals.html",
+  A+"Psychedelic VJ Visuals - Spider Web.html",
+  A+"Retro Cyberpunk VJ Loop.html",
+  A+"Vaporwave VJ Simulator.html",
+  A+"light space modulator.html",
+  A+"Art Deco Tunnel.html",
+  A+"Cyber Dive VJ Space.html",
+  A+"Cyberpunk City VJ.html",
+  A+"Cyberspace VJ Loop.html",
+  A+"Invader VJ Motion.html",
+  A+"8bit Generative Mosaic Tile.html",
+  A+"8bit Motion Graphics.html",
+  A+"Brutalist Grid Motion.html",
+  A+"Brutalist VJ.html",
+  A+"Circuit VJ Loop Color.html",
+  A+"Circuit VJ Loop.html",
+  A+"Cyber UI VJ Motion.html",
+  A+"Mondrian Motion Graphics.html",
+  A+"Nerv AT Field Monitor.html",
+  A+"Sahaquiel VJ Motion Graphics.html",
+  A+"Superflat Motion Graphics.html",
+  A+"Vaporwave 8-bit Motion Graphics.html",
+  A+"Vaporwave_Generative_Grid.html",
 
-  // --- 16bit Psychedelic VJ Generator: 6 patterns ---
-  ...Array.from({length: 6}, (_, i) => `16bit Psychedelic VJ Generator.html?scene=${i}`),
-
-  // ========== Motion Done/ 内のファイル ==========
-  "Art Deco Tunnel.html",
-  D+"Cyber Dive VJ Space.html",
-  D+"Cyberpunk City VJ.html",
-  D+"Cyberspace VJ Loop.html",
-  D+"Invader VJ Motion.html",
-  D+"8bit Generative Mosaic Tile.html",
-  D+"8bit Motion Graphics.html",
-  D+"Brutalist Grid Motion.html",
-  D+"Brutalist VJ.html",
-  D+"Circuit VJ Loop Color.html",
-  D+"Circuit VJ Loop.html",
-  D+"Cyber UI VJ Motion.html",
-  D+"Mondrian Motion Graphics.html",
-  D+"Nerv AT Field Monitor.html",
-  D+"Sahaquiel VJ Motion Graphics.html",
-  D+"Superflat Motion Graphics.html",
-  D+"Vaporwave 8-bit Motion Graphics.html",
-  D+"Vaporwave_Generative_Grid.html",
-
-  // --- 8bit VJ Motion Graphics (2): 20 scenes ---
-  ...Array.from({length: 20}, (_, i) => D+`8bit VJ Motion Graphics (2).html?scene=${i}`),
-
-  // --- 8bit VJ Motion Graphics (p5.js): 3 scenes ---
-  ...Array.from({length: 3}, (_, i) => D+`8bit VJ Motion Graphics.html?scene=${i}`),
-
-  // --- Ramiel_VJ: 4 states ---
-  ...Array.from({length: 4}, (_, i) => D+`Ramiel_VJ.html?scene=${i}`),
-
-  // --- Ramiel_VJ2: 4 states ---
-  ...Array.from({length: 4}, (_, i) => D+`Ramiel_VJ2.html?scene=${i}`),
-
-  // --- Ramiel_VJ3: 5 modes ---
-  ...Array.from({length: 5}, (_, i) => D+`Ramiel_VJ3.html?scene=${i}`),
-
-  // --- Ramiel_VJ4: 4 states ---
-  ...Array.from({length: 4}, (_, i) => D+`Ramiel_VJ4.html?scene=${i}`),
-
-  // --- Windows95TextParticles: 3 states ---
-  ...Array.from({length: 3}, (_, i) => D+`Windows95TextParticles.html?scene=${i}`),
+  ...Array.from({length: 6},  (_, i) => A+`16bit Psychedelic VJ Generator.html?scene=${i}`),
+  ...Array.from({length: 20}, (_, i) => A+`8bit VJ Motion Graphics (2).html?scene=${i}`),
+  ...Array.from({length: 3},  (_, i) => A+`8bit VJ Motion Graphics.html?scene=${i}`),
+  ...Array.from({length: 4},  (_, i) => A+`Ramiel_VJ.html?scene=${i}`),
+  ...Array.from({length: 4},  (_, i) => A+`Ramiel_VJ2.html?scene=${i}`),
+  ...Array.from({length: 5},  (_, i) => A+`Ramiel_VJ3.html?scene=${i}`),
+  ...Array.from({length: 4},  (_, i) => A+`Ramiel_VJ4.html?scene=${i}`),
+  ...Array.from({length: 3},  (_, i) => A+`Windows95TextParticles.html?scene=${i}`),
 ];
+
+// Preflight: if the assets submodule wasn't deployed, show a clear error
+// instead of letting iframes render Vercel's 404 page.
+(async function preflightAssets() {
+  const probeUrl = VJ_FILES[0].split('?')[0];
+  try {
+    const r = await fetch(probeUrl, { method: 'HEAD', cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+  } catch (err) {
+    document.body.innerHTML =
+      '<div style="position:fixed;inset:0;background:#000;color:#f33;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:monospace;padding:40px;text-align:center;">' +
+      '<div style="font-size:24px;margin-bottom:16px;">ASSETS UNAVAILABLE</div>' +
+      '<div style="font-size:13px;color:#888;max-width:560px;line-height:1.7;">' +
+      'VJ素材が読み込めません。<br>Failed to load <code style="color:#0f0;">' + probeUrl + '</code> (' + err.message + ')<br><br>' +
+      'The <code style="color:#0f0;">vj-system-assets</code> submodule may not be initialized in the deploy.<br>' +
+      'Try a hard reload (Ctrl+Shift+R / Cmd+Shift+R).' +
+      '</div></div>';
+  }
+})();
 
 // ===== DOM =====
 const dropOverlay  = document.getElementById('drop-overlay');
